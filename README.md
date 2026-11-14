@@ -1,0 +1,244 @@
+# Scalable Feature Matching via State Space Modeling and Sparse Correlation (CVPR 2026 Highlight ⭐)
+> Choo Sin Wai, Bo Li\* \
+> \* corresponding author
+
+> **SLiM means Salient Lightweight Matching** \
+> *When we submitted the paper, we not yet have an official abbreviation. Following a reviewer’s suggestion, we later decided to abbreviate our method as SLiM. However, since the paper title cannot be changed after rebuttal, the final title does not include “SLiM”.*
+
+<p align="center">
+  <a href="https://openaccess.thecvf.com/content/CVPR2026/papers/Choo_Scalable_Feature_Matching_via_State_Space_Modeling_and_Sparse_Correlation_CVPR_2026_paper.pdf">
+    <img src="https://img.shields.io/badge/Paper-CVPR-blue" alt="Paper" />
+  </a>
+  &nbsp;
+  <a href="https://www.youtube.com/watch?v=EpgQV4qM4-s&t=2s">
+    <img src="https://img.shields.io/badge/Video-Youtube-red" alt="Youtube" />
+  </a>
+</p>
+
+<p align="center">
+  <img src="assets/poster_5120.png" width="800" alt="CVPR 2026 poster" />
+  <br/>
+  <sub>Figure 1: CVPR 2026 poster.</sub>
+</p>
+
+<p align="center">
+  <img src="assets/pipeline.png" width="400" alt="Method pipeline" />
+  <br/>
+  <sub>Figure 2: Method pipeline.</sub>
+</p>
+
+<p align="center">
+  <img src="assets/intro_image.png" width="400" alt="Comparison" />
+  <br/>
+  <sub>Figure 3: Accuracy-efficiency tradeoff comparison on MegaDepth.</sub>
+</p>
+
+- [📰 News](#news)
+- [✅ TODO](#todo)
+- [⚙️ Installation](#installation-and-environment-setup)
+- [📦 Pretrained model](#pretrained-model)
+- [🏋️ Training](#training)
+- [🧪 Testing](#testing)
+- [📚 Citation](#citation)
+
+<a id="news"></a>
+
+## 📰 News
+
+- 🎉🎉🎉 [2026.02] Our paper is accepted to CVPR 2026.
+- 🎉🎉🎉 [2026.04] Our paper is selected as a CVPR 2026 Highlight.
+
+<a id="todo"></a>
+
+## ✅ TODO
+
+| ToDos                               | Status              |
+|-------------------------------------|---------------------|
+| **Installation Guides**             | ✅ Available       |
+| **Pre-trained Models**              | ✅ Available       |
+| **Training & testing Code**         | ✅ Available       |
+
+
+<a id="installation-and-environment-setup"></a>
+
+## ⚙️ Installation and environment setup
+
+### 1. 🗂️ Dataset Setup (thanks to LoFTR for the guides)
+
+#### 1.1 📥 Download dataset indices
+
+- Download the dataset indices (filename: data.7z) from this [Google Drive](https://drive.google.com/drive/folders/1fhAHN5tYr4yANkkFSHJ5kXjcSnepu0l3?usp=sharing) or [Baidu Netdisk](https://pan.baidu.com/s/18c-vLbP2mierBjLUCNroZA?pwd=22w1) [password: 22w1].
+- Unzip them and place them under the project root as follows:
+```
+SLiM
+└── data
+     ├── megadepth
+     │   └── index
+     │        ├── scene_info_0.1_0.7
+     │        ├── scene_info_val_1500
+     │        └── trainvaltest_list
+     └── scannet
+          ├── index
+          │   ├── intrinsics.npz
+          │   ├── scene_data
+          │   └── statistics.json
+          └── test
+               └── scenexxxx_xx (100 scenes here)
+```
+
+#### 1.2 📦 Download dataset
+
+##### 1.2.1 🏔️ MegaDepth
+
+Similar to LoFTR, we use depth maps provided in the original MegaDepth dataset as well as undistorted images, corresponding camera intrinsics and extrinsics preprocessed by D2-Net. You can download them separately from the following links:
+
+- [MegaDepth undistorted images and processed depths](https://www.cs.cornell.edu/projects/megadepth/dataset/Megadepth_v1/MegaDepth_v1.tar.gz)
+    - Note that we only use depth maps.
+    - Path of the downloaded data will be referred to as `/path/to/megadepth`
+- [D2-Net preprocessed images](https://drive.google.com/drive/folders/1hxpOsqOZefdrba_BqnW490XpNX_LgXPB)
+    - Images are undistorted manually in D2-Net since the undistorted images from MegaDepth do not come with corresponding intrinsics.
+    - Path of the downloaded data will be referred to as `/path/to/megadepth_d2net`
+
+##### 1.2.2 🏢 ScanNet
+
+- Download the dataset following the official guide: [ScanNet](https://github.com/ScanNet/ScanNet), and use the Python-exported data.
+
+#### 1.3 🔗 Build the dataset symlinks
+
+We symlink the datasets into the `data` directory under the project root.
+```bash
+# scannet
+# -- # train dataset
+ln -s /path/to/scannet_train/* /path/to/SLiM/data/scannet/train
+
+# megadepth
+# -- # train and test dataset (train and test share the same dataset)
+ln -sv /path/to/megadepth/phoenix /path/to/megadepth_d2net/Undistorted_SfM /path/to/SLiM/data/megadepth/train
+ln -sv /path/to/megadepth/phoenix /path/to/megadepth_d2net/Undistorted_SfM /path/to/SLiM/data/megadepth/test
+```
+
+#### 1.4 🧱 Final data structure
+
+```
+SLiM
+└── data
+      ├── megadepth
+      │   ├── index
+      │   │   ├── scene_info_0.1_0.7
+      │   │   ├── scene_info_val_1500
+      │   │   └── trainvaltest_list
+      │   ├── test
+      │   │   ├── phoenix
+      │   │   └── Undistorted_SfM
+      │   └── train
+      │       ├── phoenix
+      │       └── Undistorted_SfM
+      └── scannet
+          ├── index
+          │   ├── intrinsics.npz
+          │   ├── scene_data
+          │   └── statistics.json
+          ├── test
+               └── scenexxxx_xx (100 scenes here)
+          └── train
+               └── scenexxxx_xx (1513 scenes here)
+```
+
+### 2. 🧰 Environment Setup
+
+We have tested the following environment on **Ubuntu 22.04**.
+
+- **CUDA version** does not have to be identical to ours, but make sure:
+  - Your **NVIDIA driver** supports the CUDA version used by your **PyTorch build** (i.e., driver capability should be >= PyTorch CUDA version).
+  - The **PyTorch CUDA version** should match the **CUDA toolkit** you compile against in the environment.
+- **CUDA toolkit choice**
+  - If your system already has a compatible `cuda-toolkit`, you can use the system installation.
+  - Otherwise, install `cuda-toolkit` inside the conda environment (as shown below) and use it for compilation.
+- **GCC/G++ compatibility**
+  - `gcc/g++` must be compatible with the CUDA toolkit version you use.
+  - If your system `gcc/g++` can compile CUDA extensions successfully, you do **not** need to install `gcc/g++` in conda.
+
+```bash
+conda create -n slim -y python=3.10
+conda activate slim
+
+# torch = 2.1.1+cu118
+pip install torch==2.1.1 torchvision==0.16.1 torchaudio==2.1.1 --index-url https://download.pytorch.org/whl/cu118\
+
+# mamba and causal-conv1d package, check mamba github page if installation/build fails
+conda install cuda-toolkit==11.8 -c nvidia/label/cuda-11.8.0
+pip install causal-conv1d==1.2.1 # try --no-build-isolation if installation failed
+pip install mamba-ssm==2.2.2 # try --no-build-isolation if installation failed
+
+# other dependencies: pytorch-lightning, albumentation, yacs etc.
+pip install -r requirements.txt
+
+# selective scan from vmamba
+#     force use conda gcc and g++ (=11)
+conda install -c conda-forge -y gcc_linux-64=11 gxx_linux-64=11
+export CC="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-gcc"
+export CXX="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++"
+#     force use conda cuda
+export CUDA_HOME="$CONDA_PREFIX"
+export PATH="$CUDA_HOME/bin:$PATH"
+export LD_LIBRARY_PATH="$CUDA_HOME/lib:$CUDA_HOME/lib64:$LD_LIBRARY_PATH"
+#     compilation takes time, please wait patiently
+cd src/backbone/vssm/kernels/selective_scan
+pip install . --no-build-isolation
+cd ../../../../../
+```
+
+
+<a id="pretrained-model"></a>
+
+## 📦 Pretrained model
+
+The pretrained model is provided at: `ckpt/megadepth_19epochs.ckpt`
+
+<a id="training"></a>
+
+## 🏋️ Training
+
+Train on indoor or outdoor datasets. `--device` specifies which GPU(s) to use (e.g., `0,1,2` for GPUs 0–2; also accept `8` to use the first 8 GPUs). Example usage: `--device 0,1,2,3` or `--device 4`.
+
+```bash
+# Indoor train
+python train.py --config_name indoor_train --device {device indices}
+# Outdoor train
+python train.py --config_name outdoor_train --device {device indices}
+```
+
+Optional: run the process in the background and redirect stdout to a log file:
+```bash
+nohup python train.py --config_name indoor_train --device 0,1,2 > indoor_train.log &
+```
+
+<a id="testing"></a>
+
+## 🧪 Testing
+
+Test on indoor or outdoor datasets. `--device` follows the same convention as training.
+
+```bash
+# Indoor test
+python test.py --config_name indoor_test --device {device indices}
+# Outdoor test
+python test.py --config_name outdoor_test --device {device indices}
+```
+
+Optional: run the process in the background and redirect stdout to a log file:
+```bash
+nohup python test.py --config_name indoor_test --device 0,1,2 > indoor_test.log &
+```
+
+<a id="citation"></a>
+
+## 📚 Citation
+```bibtex
+@inproceedings{choo2026slim,
+  title={Scalable Feature Matching via State Space Modeling and Sparse Correlation},
+  author={Choo, Sin Wai and Li, Bo},
+  booktitle={Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)},
+  year={2026}
+}
+```
