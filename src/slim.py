@@ -7,6 +7,8 @@ from yacs.config import CfgNode as CN
 from .backbone import build_backbone
 from .recurrent_refinement import RecurrentRefinementUnit
 from .utils.misc import create_grid, CudaTimer, Upsample
+from .reliability import build_reliability_head
+from .texture_budget import local_texture, allocate_candidates, TEXTURE_SCHEMA
 
 
 class SLiM(nn.Module):
@@ -26,6 +28,18 @@ class SLiM(nn.Module):
         self.train_noise_scale = config["TRAIN_NOISE_SCALE"]
         self.optimized_dual_softmax = config["OPTIMIZED_DUAL_SOFTMAX"]
 
+        # Optional branches introduce no parameters or execution when disabled.
+        reliability = config.get("reliability", {})
+        texture = config.get("texture_budget", {})
+        self.reliability_enabled = bool(reliability.get("enabled", False))
+        self.capture_reliability = bool(reliability.get("capture", False))
+        self.texture_budget_enabled = bool(texture.get("enabled", False))
+        self.texture_fraction = float(texture.get("fraction", 0.2))
+        self.texture_threshold = texture.get("threshold", None)
+        self.sparse_direct = bool(config.get("sparse_direct", False))
+        self.reliability_head = (build_reliability_head(self.d_coarse)
+                                 if self.reliability_enabled else None)
+
         # 1. Backbone
         self.feature_backbone = build_backbone(config["BACKBONE"])
 
@@ -44,7 +58,15 @@ class SLiM(nn.Module):
         self.coarse_temperature = nn.Parameter(torch.tensor(0.05))
         self.fine_temperature = nn.Parameter(torch.tensor(0.005))
 
-    def forward(self, data: dict, training: bool = False):
+    def enable_reliability(self, head=None):
+        """Attach only after strict original-weight loading; this is score-only."""
+        self.reliability_head = (head if head is not None else
+                                 build_reliability_head(self.d_coarse)).to(
+                                     device=self.coarse_temperature.device, dtype=torch.float32)
+        self.reliability_enabled = True
+        return self.reliability_head
+
+    def forward(self, data: dict, training: bool = False, coarse_only: bool = False):
         """
         Forward function
         Input:
@@ -126,9 +148,41 @@ class SLiM(nn.Module):
             }
         )
         if training:
+            if coarse_only or self.reliability_enabled or self.texture_budget_enabled:
+                raise ValueError("Reliability uses predicted parents through training=False")
             return self._forward_train(data)
+        if coarse_only:
+            self._forward_coarse_only(data)
         else:
-            return self._forward_test(data)
+            self._forward_test(data)
+        if "coarse_match_id" in data and "m_idx_it" in data:
+            data["fine_parent_id"] = data["coarse_match_id"][data["m_idx_it"]]
+        if self.reliability_enabled:
+            if self.reliability_head is None:
+                raise RuntimeError("Attach the reliability head before enabling it")
+            self.reliability_head.score_data(data)
+
+    def _forward_coarse_only(self, data):
+        """Explicit training shortcut; coarse selection is the native production method.
+
+        The feature backbone includes its native FPN, but fine upsample, fine
+        correlation and RRU are skipped because they do not feed coarse matching.
+        The redundant full correlation matrix is also not produced.
+        """
+        with CudaTimer() as timer:
+            x0, x1 = self.feature_backbone(data["image0"], data["image1"])
+        coarse_x0, coarse_x1 = x0[self.coarse_scale_idx], x1[self.coarse_scale_idx]
+        data.update({"feat0_c": coarse_x0, "feat1_c": coarse_x1,
+                     "hw0_c": coarse_x0.shape[2:], "hw1_c": coarse_x1.shape[2:],
+                     "coarse_scale": data["image0"].shape[-1]/coarse_x0.shape[-1],
+                     "feat_extract_time": timer.elapsed_time/data["batch_size"],
+                     "upsample_time": 0.0, "fine_match_time": 0.0, "refine_time": 0.0})
+        mask0 = data["mask0"].flatten(-2) if "mask0" in data else None
+        mask1 = data["mask1"].flatten(-2) if "mask1" in data else None
+        with CudaTimer() as timer:
+            self._coarse_match_norm_clue(data, coarse_x0, coarse_x1, mask0, mask1)
+        data["coarse_match_time"] = timer.elapsed_time/data["batch_size"]
+        data["coarse_only"] = True
 
     def _forward_train(self, data: dict):
         # 1. Feature
@@ -239,13 +293,14 @@ class SLiM(nn.Module):
 
         # 3. Coarse matching
         with CudaTimer() as timer:
-            self._coarse_correlation(
-                data=data,
-                feat0_c=coarse_x0,
-                feat1_c=coarse_x1,
-                mask0=mask0,
-                mask1=mask1,
-            )  # (B x HW x HW)
+            if not self.sparse_direct:
+                self._coarse_correlation(
+                    data=data,
+                    feat0_c=coarse_x0,
+                    feat1_c=coarse_x1,
+                    mask0=mask0,
+                    mask1=mask1,
+                )  # Native full matrix, unused by the sparse path.
             # self._get_coarse_coord_test(data=data)  # Get coord from sim matrix
             self._coarse_match_norm_clue(
                 data=data,
@@ -502,6 +557,26 @@ class SLiM(nn.Module):
         # norm0 = self.simple_nms(norm0, 1)
         # norm0 = norm0.flatten(1)
 
+        capture = self.capture_reliability or self.reliability_enabled or self.texture_budget_enabled
+        if capture and (not torch.isfinite(norm0).all() or not torch.isfinite(norm1).all()):
+            raise FloatingPointError("Nonfinite coarse descriptor norm before candidate selection")
+        coarse_confidence = []
+        candidate_ids0, candidate_ids1 = [], []
+        native_candidate_ids0, native_candidate_ids1 = [], []
+        texture0 = texture1 = None
+        if self.texture_budget_enabled:
+            for side, feature in ((0, feat0_c), (1, feat1_c)):
+                valid = data.get("valid_mask" + str(side))
+                if valid is None:
+                    if "mask" + str(side) in data:
+                        raise ValueError("Texture needs full-resolution valid_mask0/1; coarse masks are insufficient")
+                    valid = torch.ones_like(data["image" + str(side)][:, 0], dtype=torch.bool)
+                texture, count = local_texture(data.get("texture_image" + str(side),
+                                                        data["image" + str(side)]), valid, feature.shape[-2:])
+                data["local_texture" + str(side)] = texture
+                data["local_texture_valid_count" + str(side)] = count
+            texture0, texture1 = data["local_texture0"], data["local_texture1"]
+            data["texture_schema"] = TEXTURE_SCHEMA
         b_idx_c = []
         i_idx_c = []
         j_idx_c = []
@@ -541,7 +616,26 @@ class SLiM(nn.Module):
                             dtype=torch.long,
                         )
                     )
+                    if capture:
+                        coarse_confidence.append(feat0_c.new_empty((0,)))
+                        candidate_ids0.append(candidate_i.detach().clone())
+                        candidate_ids1.append(candidate_j.detach().clone())
+                        native_candidate_ids0.append(candidate_i.detach().clone())
+                        native_candidate_ids1.append(candidate_j.detach().clone())
                     continue
+            if capture:
+                native_candidate_ids0.append(candidate_i.detach().clone())
+                native_candidate_ids1.append(candidate_j.detach().clone())
+            if self.texture_budget_enabled:
+                legal0 = mask0[b].bool() if mask0 is not None else torch.ones_like(norm0[b], dtype=torch.bool)
+                legal1 = mask1[b].bool() if mask1 is not None else torch.ones_like(norm1[b], dtype=torch.bool)
+                candidate_i = allocate_candidates(candidate_i, norm0[b], legal0, texture0[b],
+                                                  self.texture_threshold, self.texture_fraction)
+                candidate_j = allocate_candidates(candidate_j, norm1[b], legal1, texture1[b],
+                                                  self.texture_threshold, self.texture_fraction)
+            if capture:
+                candidate_ids0.append(candidate_i.detach().clone())
+                candidate_ids1.append(candidate_j.detach().clone())
             # Random pick
             # N = norm1[b].shape[0]
             # candidate_i = torch.randperm(N, device=norm1.device)[: N // 3]
@@ -554,7 +648,11 @@ class SLiM(nn.Module):
                 feat0_flatten[b, candidate_i].contiguous(),
                 feat1_flatten[b, candidate_j].contiguous(),
             ) / (self.coarse_temperature + 1e-8)
+            if capture and not torch.isfinite(sim_matrix).all():
+                raise FloatingPointError("Nonfinite sparse coarse similarity before softmax")
             conf_matrix = F.softmax(sim_matrix, 0) * F.softmax(sim_matrix, 1)
+            if capture and not torch.isfinite(conf_matrix).all():
+                raise FloatingPointError("Nonfinite sparse coarse confidence before topk")
 
             # 6. Topk
             top_k = min(
@@ -567,6 +665,8 @@ class SLiM(nn.Module):
             # 7. Apply threshold
             valid_matches = top_k_values > (conf_matrix.max() * self.coarse_match_thres)
             coarse_match = top_k_indices[valid_matches]
+            if capture:
+                coarse_confidence.append(top_k_values[valid_matches].detach())
 
             # 8. Manually calculate original indices
             b_idx_c.append(
@@ -625,6 +725,25 @@ class SLiM(nn.Module):
                 "coarse_coord_1": coarse_coord_1,  # in absolute coordinate, at the top left corner of coarse window
             }
         )
+
+        if capture:
+            raw0 = rearrange(feat0_c, "b c h w -> b (h w) c")
+            raw1 = rearrange(feat1_c, "b c h w -> b (h w) c")
+            total_ids = B * raw0.shape[1] * raw1.shape[1]
+            if total_ids >= torch.iinfo(torch.int64).max:
+                raise OverflowError("Raw coarse identity exceeds int64")
+            data.update({
+                "coarse_descriptor0": raw0[b_idx_c, i_idx_c].detach(),
+                "coarse_descriptor1": raw1[b_idx_c, j_idx_c].detach(),
+                "coarse_confidence": torch.cat(coarse_confidence),
+                "coarse_match_id": (b_idx_c * raw0.shape[1] + i_idx_c) * raw1.shape[1] + j_idx_c,
+                "coarse_row_id": torch.arange(b_idx_c.numel(), device=b_idx_c.device),
+                "candidate_ids0": candidate_ids0, "candidate_ids1": candidate_ids1,
+                "native_candidate_ids0": native_candidate_ids0, "native_candidate_ids1": native_candidate_ids1,
+                "candidate_counts": [(int(a.numel()), int(b.numel())) for a,b in zip(candidate_ids0,candidate_ids1)],
+                "correlation_shapes": [(int(a.numel()), int(b.numel())) for a,b in zip(candidate_ids0,candidate_ids1)],
+                "descriptor_channels": C,
+            })
 
     def _fine_correlation(self, data: dict):
         b_idx_c = data["b_idx_c"]  # M
