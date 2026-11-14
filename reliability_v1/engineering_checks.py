@@ -99,10 +99,10 @@ def check_model(runtime, records, out_dir):
     """Check three fixed real pairs; does not perform any optimizer update."""
     out_dir=Path(out_dir);out_dir.mkdir(parents=True,exist_ok=True)
     records=list(records)[:3]
-    if not records:raise RuntimeError("No real training pair for model acceptance")
+    if len(records)!=3:raise RuntimeError("Three real training pairs required for model acceptance")
     baseline_path=runtime.run/"baseline_code"/"src"/"slim.py"
     if not baseline_path.is_file():
-        baseline_path=Path(runtime.config["run_dir"])/"baseline_code"/"src"/"slim.py"
+        baseline_path=Path(runtime.config.get("source_run",runtime.config["run_dir"]))/"baseline_code"/"src"/"slim.py"
     if not baseline_path.is_file():raise RuntimeError("Frozen baseline source missing")
     spec=importlib.util.spec_from_file_location("src._baseline_slim",baseline_path)
     module=importlib.util.module_from_spec(spec);sys.modules[spec.name]=module;spec.loader.exec_module(module)
@@ -111,7 +111,7 @@ def check_model(runtime, records, out_dir):
     head_mode=runtime.head.training
     evidence={"status":"running","baseline_source":str(baseline_path),"baseline_sha256":sha(baseline_path),
               "pairs":[],"tolerance":{"atol":runtime.config.get("regression_atol",runtime.config.get("atol",0.0)),"rtol":runtime.config.get("regression_rtol",runtime.config.get("rtol",0.0))},
-              "cpu_edge_case_evidence":str(Path(runtime.config["run_dir"])/"model_cpu_contracts_observer_pass.log")}
+              "cpu_edge_case_evidence":str(runtime.run/"cpu_contracts.json")}
     atol,rtol=evidence["tolerance"]["atol"],evidence["tolerance"]["rtol"]
     baseline=None
     try:

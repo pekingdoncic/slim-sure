@@ -1,5 +1,6 @@
 """Real-data engineering acceptance; never launches formal epochs."""
 import gc
+import copy
 import json
 from pathlib import Path
 import time
@@ -10,8 +11,21 @@ import sys
 import uuid
 import numpy as np
 import torch
-from .runtime import (atomic_json,append_json,digest,now,sha,state_hash,save_checkpoint,load_checkpoint,resource_sample,code_identity)
+from .runtime import (atomic_json,append_json,digest,now,sha,state_hash,save_checkpoint,load_checkpoint,resource_sample,code_identity,rng_state)
 from .trainer import train_step,validate,permutation,heartbeat
+
+def assert_state_equal(expected,actual,atol=0.,rtol=0.):
+    if torch.is_tensor(expected):
+        torch.testing.assert_close(expected,actual,atol=atol,rtol=rtol)
+    elif isinstance(expected,np.ndarray):
+        np.testing.assert_array_equal(expected,actual)
+    elif isinstance(expected,dict):
+        if expected.keys()!=actual.keys():raise AssertionError("Restored state keys differ")
+        for k in expected:assert_state_equal(expected[k],actual[k],atol,rtol)
+    elif isinstance(expected,(list,tuple)):
+        if len(expected)!=len(actual):raise AssertionError("Restored sequence length differs")
+        for a,b in zip(expected,actual):assert_state_equal(a,b,atol,rtol)
+    elif expected!=actual:raise AssertionError("Restored scalar differs")
 
 def cpu_contracts(config,run):
     run=Path(run);expected=digest(code_identity(config["repo_root"]))
@@ -35,7 +49,7 @@ def calibration(runtime_config,train_records,run):
     target=Path(run)/"texture_calibration.json"
     ids=train_records.scene_round_robin_indices(min(100,len(train_records)))
     records=[train_records[i] for i in ids]
-    source=dict(pair_ids=[r["pair_id"] for r in records],schema=TEXTURE_SCHEMA,quantile=1/3,resolution=832,texture_code_sha256=sha(Path(runtime_config["repo_root"])/"src/texture_budget.py"),loader_code_sha256=sha(Path(runtime_config["repo_root"])/"reliability_data.py"),source_manifest_sha256=sha(Path(run)/"train_manifest.jsonl"),selected_file_identity=digest([r.get("file_sha256",{}) for r in records]))
+    source=dict(pair_ids=[r["pair_id"] for r in records],schema=TEXTURE_SCHEMA,quantile=1/3,resolution=832,texture_code_sha256=sha(Path(runtime_config["repo_root"])/"src/texture_budget.py"),loader_code_sha256=sha(Path(runtime_config["repo_root"])/"reliability_data.py"),source_manifest_sha256=sha(getattr(train_records,"path",Path(run)/"train_manifest.jsonl")),selected_file_identity=digest([r.get("file_sha256",{}) for r in records]))
     if target.exists():
         value=json.loads(target.read_text())
         if value["source"]!=source:raise RuntimeError("Texture calibration identity differs")
@@ -59,14 +73,15 @@ def calibration(runtime_config,train_records,run):
     atomic_json(target,value)
     return value
 
-def engineering(runtime,train_records,val_records,run_identity):
+def engineering(runtime,train_records,val_records,run_identity,scope="full_manifest_engineering"):
+    if scope not in ("full_manifest_engineering","engineering_core"):raise ValueError("Unknown acceptance scope")
     run=runtime.run;out=run/"engineering";out.mkdir(exist_ok=True)
     runtime.run_identity=run_identity
-    accepted=run/"engineering_acceptance.json"
+    accepted=run/("engineering_core_acceptance.json" if scope=="engineering_core" else "engineering_acceptance.json")
     if accepted.exists():
         old=json.loads(accepted.read_text())
         if old.get("status")=="pass":
-            if old["identity"]!=run_identity:raise RuntimeError("Passed acceptance is stale; use a new run identity for changed code/data")
+            if old["identity"]!=run_identity or old.get("scope")!=scope:raise RuntimeError("Passed acceptance is stale; use a new run identity for changed code/data")
             return old
     train=[train_records[i] for i in train_records.scene_round_robin_indices(runtime.config["engineering_pairs"])]
     val=[val_records[i] for i in val_records.scene_round_robin_indices(runtime.config["engineering_val_pairs"])]
@@ -97,6 +112,7 @@ def engineering(runtime,train_records,val_records,run_identity):
     checks.update(check_model(runtime,train[:3],out))
     checks.update(check_texture(runtime,train[:3],out))
     before=state_hash(runtime.head)
+    parameters_before={n:p.detach().cpu().clone() for n,p in runtime.head.named_parameters()}
     state=dict(epoch=0,next_pos=0,global_step=0,attempted_pairs=0,order=[],physical_updates=0)
     resume_done=False;results=[];phys_updates=prior_updates
     checkpoint=out/"resume_probe.json"
@@ -113,14 +129,17 @@ def engineering(runtime,train_records,val_records,run_identity):
                      attempted_pairs=ordinal+1,physical_updates=phys_updates)
         # Probe the same next real step from a committed optimizer/RNG/cursor state.
         if not resume_done and state["global_step"]>=8 and ordinal+1<len(schedule[:max_visits]):
+            saved_rng=copy.deepcopy(rng_state());saved_optimizer=copy.deepcopy(runtime.optimizer.state_dict())
             save_checkpoint(checkpoint,runtime.head,runtime.optimizer,state.copy(),run_identity)
             next_epoch,next_pos,next_index,next_order=schedule[ordinal+1]
             continuous,gradient0=train_step(runtime,train[next_index],next_epoch,next_pos,out/"resume_physical_visits.jsonl")
             params0={n:p.detach().cpu().clone() for n,p in runtime.head.named_parameters()}
-            optimizer0=runtime.optimizer.state_dict()
+            optimizer0=copy.deepcopy(runtime.optimizer.state_dict())
             # Explicitly restore the whole training state, not just model tensors.
             restored=load_checkpoint(checkpoint,runtime.head,runtime.optimizer,run_identity)
             if restored["position"]!=state:raise AssertionError("Sampler/cursor restoration differs")
+            assert_state_equal(saved_rng,rng_state())
+            assert_state_equal(saved_optimizer,runtime.optimizer.state_dict())
             replay,gradient1=train_step(runtime,train[next_index],next_epoch,next_pos,out/"resume_physical_visits.jsonl")
             if continuous["updated"]!=replay["updated"]:raise AssertionError("Resume update decision differs")
             maxdiff=0.
@@ -130,15 +149,16 @@ def engineering(runtime,train_records,val_records,run_identity):
                 for n,p in runtime.head.named_parameters():
                     torch.testing.assert_close(params0[n],p.detach().cpu(),atol=runtime.config["atol"],rtol=runtime.config["rtol"])
                     maxdiff=max(maxdiff,float((params0[n]-p.detach().cpu()).abs().max()))
+                assert_state_equal(optimizer0,runtime.optimizer.state_dict(),runtime.config["atol"],runtime.config["rtol"])
                 phys_updates+=2
             atomic_json(out/"resume_evidence.json",dict(status="pass",pair_id=train[next_index]["pair_id"],
                 checkpoint_sha=sha(checkpoint),continuous_loss=continuous.get("loss"),restored_loss=replay.get("loss"),
                 parameter_max_abs=maxdiff,gradient_max_abs=float((gradient0-gradient1).abs().max()) if gradient0 is not None else None,
-                cursor=state,restored_rng=True,restored_optimizer=True,
+                cursor=state.copy(),restored_rng=True,restored_optimizer=True,rng_exactly_compared=True,optimizer_state_compared=True,
                 physical_branch_updates=int(continuous["updated"])+int(replay["updated"]),atol=runtime.config["atol"],rtol=runtime.config["rtol"]))
             # Return to checkpoint; normal schedule performs its next step once, recorded separately.
             load_checkpoint(checkpoint,runtime.head,runtime.optimizer,run_identity)
-            del params0,optimizer0,gradient0,gradient1
+            del params0,optimizer0,gradient0,gradient1,saved_rng,saved_optimizer
             resume_done=bool(continuous["updated"])
         if phys_updates>50:raise AssertionError("Engineering update budget exceeded")
         if (ordinal+1)%len(train)==0:
@@ -147,6 +167,11 @@ def engineering(runtime,train_records,val_records,run_identity):
     if not resume_done:raise RuntimeError("Not enough evaluable real steps to exercise resume")
     runtime.check_frozen()
     if before==state_hash(runtime.head):raise AssertionError("New head did not change")
+    parameter_changes={n:dict(changed=not torch.equal(parameters_before[n],p.detach().cpu()),
+        max_abs_difference=float((parameters_before[n]-p.detach().cpu()).abs().max())) for n,p in runtime.head.named_parameters()}
+    atomic_json(out/"new_parameter_updates.json",parameter_changes)
+    if not all(v["changed"] for v in parameter_changes.values()):raise AssertionError("A new trainable parameter did not update")
+    del parameters_before
     state["physical_updates"]=phys_updates
     save_checkpoint(out/"smoke.json",runtime.head,runtime.optimizer,state,run_identity,
                     extra={"scope":"engineering_only_not_formal_training"})
@@ -163,7 +188,8 @@ def engineering(runtime,train_records,val_records,run_identity):
         pair_p95_seconds=float(np.quantile([r["seconds"] for r in results],.95)),
         postwarm_allocated_growth=growth,allocated_series=values.tolist(),reserved_series=reserved.tolist(),
         peak_allocated=max(r["resources"]["peak_allocated"] for r in results),peak_reserved=max(r["resources"]["peak_reserved"] for r in results),
-        rss_peak=max(r["resources"]["rss_peak_bytes"] for r in results),elapsed_seconds=time.perf_counter()-start,calls=runtime.calls,
+        rss_peak=max(r["resources"]["rss_peak_bytes"] for r in results),
+        host_memory_swap_series=[r["resources"] for r in results],elapsed_seconds=time.perf_counter()-start,calls=runtime.calls,
         limitation="At most 50 updates only; 10-epoch resource stability is not established")
     atomic_json(out/"resources.json",measured)
     atomic_json(run/"watchdog.json",dict(pair_timeout_seconds=max(120.,20*measured["pair_p95_seconds"]),
@@ -177,7 +203,7 @@ def engineering(runtime,train_records,val_records,run_identity):
                   independent_validation={"status":"pass","pairs":len(val),"scenes":sorted({r["scene"] for r in val})})
     for name,value in checks.items():
         if value.get("status")!="pass":raise RuntimeError("Engineering check did not pass: "+name)
-    acceptance=dict(status="pass",identity=run_identity,checks=checks,time=now(),
-        physical_optimizer_updates=phys_updates,smoke_checkpoint="engineering/smoke.json",formal_training="planned")
+    acceptance=dict(status="pass",scope=scope,formal_training_eligible=scope=="full_manifest_engineering",identity=run_identity,checks=checks,time=now(),
+        physical_optimizer_updates=phys_updates,smoke_checkpoint="engineering/smoke.json",formal_training="not_started")
     atomic_json(accepted,acceptance)
     return acceptance

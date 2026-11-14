@@ -1,5 +1,7 @@
 """CPU contracts for production scoring/candidate code, not GPU acceptance."""
 import subprocess
+import hashlib
+from pathlib import Path
 import types
 import linecache
 import sys
@@ -57,7 +59,14 @@ class ReliabilityContracts(unittest.TestCase):
                 self.assertFalse(torch.equal(before,head.projection.weight))
 
     def test_actual_native_coarse_method_preserved(self):
-        source=subprocess.check_output(["git","show","HEAD:src/slim.py"],text=True)
+        # Frozen native baseline, byte-identical to the existing baseline_code/src/slim.py.
+        # HEAD includes reliability code after its first commit and is not a native reference.
+        native_commit="1a8839b1273ef5a5aabae6bfc44ba75c375c1120"
+        native_sha256="91ea7f8019bc87b39fdf9e1138764de7950e7dad237291ade0040ed35f02cc30"
+        repo=Path(__file__).resolve().parents[1]
+        source_bytes=subprocess.check_output(["git","-C",str(repo),"show",native_commit+":src/slim.py"])
+        self.assertEqual(hashlib.sha256(source_bytes).hexdigest(),native_sha256)
+        source=source_bytes.decode("utf-8")
         baseline=types.ModuleType("src._engineering_baseline")
         baseline.__package__="src"
         linecache.cache["baseline/src/slim.py"]=(len(source),None,source.splitlines(True),"baseline/src/slim.py")
@@ -74,6 +83,11 @@ class ReliabilityContracts(unittest.TestCase):
             m.capture_reliability=False
             m._coarse_match_norm_clue(disabled,a,b)
             self.assertEqual(set(disabled),set(native))
+            for key,value in native.items():
+                if isinstance(value,torch.Tensor):
+                    self.assertTrue(torch.equal(disabled[key],value),"disabled parity: "+key)
+                else:
+                    self.assertEqual(disabled[key],value,"disabled parity: "+key)
             self.assertIsNone(getattr(m,"reliability_head",None))
             m.capture_reliability=True
             m._coarse_match_norm_clue(modified,a,b)

@@ -1,4 +1,9 @@
-"""CPU state tests for the production trainer/checkpoint APIs, without model/GPU runs."""
+"""CPU state tests for trainer/checkpoint APIs, without model/GPU runs.
+
+Formal prerequisites use a mock here because these tiny state-machine fixtures
+do not represent a full audit. test_reliability_formal_gate exercises the real
+fail-closed gate independently; this suite cannot authorize formal training.
+"""
 from contextlib import ExitStack
 import copy
 import json
@@ -19,6 +24,9 @@ from reliability_v1.trainer import full_train,permutation
 class CPUStateContracts(unittest.TestCase):
     def setUp(self):
         self.stack=ExitStack()
+        self.formal_gate=self.stack.enter_context(patch(
+            "reliability_v1.formal_gate.verify_formal_prerequisites",
+            return_value={"status":"verified","scope":"synthetic_state_test_only"}))
         self.stack.enter_context(patch("torch.cuda.get_rng_state_all",return_value=[]))
         self.stack.enter_context(patch("torch.cuda.set_rng_state_all"))
         self.stack.enter_context(patch("torch.cuda.manual_seed_all"))
@@ -90,6 +98,7 @@ class CPUStateContracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp,patch("reliability_v1.trainer.train_step",side_effect=step),patch("reliability_v1.trainer.validate",side_effect=validation):
             rt=self.runtime(tmp,epochs=2)
             final=full_train(rt,records,val,{"case":"state_test"})
+            self.formal_gate.assert_called_once_with(rt.config,rt.run,{"case":"state_test"})
             self.assertEqual(final["attempted_pairs"],6002)
             self.assertEqual(final["global_step"],6002)
             self.assertEqual(final["epoch"],2)
@@ -141,11 +150,13 @@ class CPUStateContracts(unittest.TestCase):
             counts={i:sum(r["position"]==i for r in physical) for i in (999,1000,1036,1037,1106)}
             self.assertEqual(counts,{999:1,1000:2,1036:2,1037:1,1106:1})
 
-    def test_stale_engineering_receipt_blocks_training(self):
+    def test_stale_engineering_receipt_blocks_after_formal_gate(self):
+        # Isolate the trainer's second identity check after prerequisite approval.
         with tempfile.TemporaryDirectory() as tmp:
             rt=self.runtime(tmp)
             with self.assertRaisesRegex(RuntimeError,"stale"):
                 full_train(rt,self.records(5),self.records(2),{"case":"different"})
+            self.formal_gate.assert_called_once_with(rt.config,rt.run,{"case":"different"})
 
 
 if __name__=="__main__":unittest.main()

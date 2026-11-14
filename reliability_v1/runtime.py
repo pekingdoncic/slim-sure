@@ -70,7 +70,7 @@ def state_hash(module):
 
 def code_identity(root):
     root=Path(root)
-    paths=[root/"reliability_stage.py",root/"reliability_data.py"]
+    paths=[root/"reliability_stage.py",root/"reliability_data.py",root/"reliability_engineering_recovery.py"]
     for folder in ("src","configs","reliability_v1","utils"):
         paths += [p for p in (root/folder).rglob("*.py") if "__pycache__" not in p.parts]
     return {str(p.relative_to(root)):sha(p) for p in sorted(set(paths)) if p.is_file()}
@@ -122,7 +122,8 @@ def load_checkpoint(path,head,optimizer,run_identity,restore_rng=True):
     return obj
 
 def resource_sample():
-    return dict(time=now(),allocated=torch.cuda.memory_allocated(),reserved=torch.cuda.memory_reserved(),
+    from .environment_monitor import system_sample
+    return dict(**system_sample(),time=now(),allocated=torch.cuda.memory_allocated(),reserved=torch.cuda.memory_reserved(),
         peak_allocated=torch.cuda.max_memory_allocated(),peak_reserved=torch.cuda.max_memory_reserved(),
         rss_peak_bytes=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024,
         rss_bytes=int(Path("/proc/self/statm").read_text().split()[1])*os.sysconf("SC_PAGE_SIZE"))

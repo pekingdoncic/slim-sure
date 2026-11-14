@@ -58,7 +58,7 @@ def train_step(runtime,record,epoch,position,log_path):
                 note="All actual parents on selected engineering pair; no descriptor/features cached"))
     count=int(valid.sum().item())
     result=dict(pair_id=record["pair_id"],scene=record["scene"],epoch=epoch,position=position,valid_parents=count,
-                parents=len(y),ignore=len(y)-count,updated=False,timing=data["_timing"],ignore_reasons=labels.get("ignore_counts",{}))
+                parents=len(y),ignore=len(y)-count,positive=int(((y==1)&valid).sum()),negative=int(((y==0)&valid).sum()),updated=False,timing=data["_timing"],ignore_reasons=labels.get("ignore_counts",{}))
     grad_copy=None
     if count:
         ids=torch.nonzero(valid).flatten()
@@ -85,8 +85,8 @@ def train_step(runtime,record,epoch,position,log_path):
         runtime.optimizer.step()
         if any(not torch.isfinite(p).all() for p in runtime.head.parameters()):raise FloatingPointError("Nonfinite new parameter")
         torch.cuda.synchronize()
-        result.update(updated=True,loss=float(loss.detach()),sampled_parents=len(ids),
-                      grad_norm=float(torch.linalg.vector_norm(grad_copy)),head_forward_backward_step_seconds=time.perf_counter()-head_started)
+        result.update(updated=True,loss=float(loss.detach()),sampled_parents=len(ids),sampled_positive=int((y[ids]==1).sum()),sampled_negative=int((y[ids]==0).sum()),
+                      gradient_norms={n:float(torch.linalg.vector_norm(p.grad.detach().float())) for n,p in runtime.head.named_parameters()},grad_norm=float(torch.linalg.vector_norm(grad_copy)),head_forward_backward_step_seconds=time.perf_counter()-head_started)
         del logits,loss,small,grads,ids
     else:
         result["skip_reason"]="no_coarse_parents" if len(y)==0 else "no_visible_depth_support"
@@ -142,7 +142,10 @@ def validate(runtime,records,out_dir,checkpoint_id,run_identity):
     return summary
 
 def full_train(runtime,records,val_records,run_identity,resume=False):
-    cfg=runtime.config;run=runtime.run;out=run/"full_train";out.mkdir(exist_ok=True)
+    cfg=runtime.config;run=runtime.run
+    from .formal_gate import verify_formal_prerequisites
+    verify_formal_prerequisites(cfg,run,run_identity)
+    out=run/"full_train";out.mkdir(exist_ok=True)
     accepted=json.loads((run/"engineering_acceptance.json").read_text())
     if accepted["status"]!="pass" or accepted["identity"]!=run_identity:raise RuntimeError("Engineering acceptance missing/stale; full training blocked")
     last=out/"last.json";best=out/"best.json"

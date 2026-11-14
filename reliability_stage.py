@@ -87,6 +87,8 @@ def main():
                 write_engineering(cfg)
                 del runtime;gc.collect();__import__("torch").cuda.empty_cache()
             if stage in ("full_train","all"):
+                from reliability_v1.formal_gate import verify_formal_prerequisites
+                verify_formal_prerequisites(cfg,run,run_id)
                 accepted=read(run/"engineering_acceptance.json",{})
                 if accepted.get("status")!="pass" or accepted.get("identity")!=run_id:raise RuntimeError("Matching engineering acceptance required")
                 # A fresh head/optimizer is mandatory even when 'all' follows smoke.
