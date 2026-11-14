@@ -1,75 +1,91 @@
 # SLiM reliability V1
 
-Original SLiM weights and BN stay frozen. Only the 29,185-parameter shared
-projection and reliability head train; both new model switches default to off.
+Original SLiM weights and BN remain frozen. The shared projection and reliability
+head have 29,185 trainable parameters. R832, batch size 1, workers 0, AMP and the
+locked numerical profile remain unchanged.
 
-## Core engineering while the full audit is incomplete
+## Phase 1 preparation and evidence
 
-After a bounded environment probe, use a distinct recovery directory:
+The independent run is `runs/phase1_20261115T004137`. Historical run
+`runs/reliability_v1_20261114T172319` is read-only. Its identity-matched
+3-pair baseline regression, 8+4 real smoke, 34 physical optimizer updates and
+exact next-step recovery are inherited only for the unchanged core paths.
+
+This Phase 1 does not update the formal model or execute real final100 EPE.
+It completes the 368-index audit, freezes the physical-scene split and sampled
+plans, computes train-only statistics, checks real labels, and exercises the
+new functions in isolated component tests. The authoritative readiness result
+and limitations are in `Phase1_Readiness_Report.md` and `phase1_ready.json`
+inside the independent run.
+
+The bounded audit preserves 107 historical commits and adds 261. SQLite performs
+deduplication, ordering and manifest export; Python file/frame caches hold at
+most 256 entries. Each source decoder has a hard address-space cap (default
+1 GiB; this measured run needs 2 GiB for its largest index). An initial 1 GiB
+MemoryError remains recorded. No index is silently omitted. Historical storage
+faults remain preserved; healthy current-boot probes do not prove their cause fixed.
+
+## Confirmed second-task protocol
+
+The full legal pool is split by physical scene, excluding test scenes. Native
+overlap remains finite and strictly greater than zero. The confirmed sampler
+draws at most 100 pairs without replacement per training scene per epoch for
+10 epochs. Seed2026, epoch and stable scene identity determine each plan.
+The fixed validation set has at most50 pairs per independent validation scene.
+A stable round-robin100-pair validation subset is reserved for final EPE.
+
+Each visit uses one shared deterministic subset of at most1024 valid parents for
+the head BCE and scalar LR records. Records retain float32 features/weights and
+lossless raw IDs. End-of-epoch LR uses all committed visits through that epoch,
+pair-equal streamed L-BFGS and L2=1e-6 on the three standardized coefficients.
+The intercept is unregularized. Failed LR fits are never reused as successful
+phase commits. The head optimizer contains only the head parameters.
+
+Comparison uses pair AUROC/AP (AP is the AUPRC implementation), scene-equal
+aggregation and paired scene bootstrap2000, seed2026. Empty or single-class
+pairs have undefined AUROC and AP. Validation pair-equal BCE selects the main
+checkpoint; exact ties retain the earlier epoch. The report also compares the
+AUROC-best epoch. Final EPE samples depth at the actual final source point and
+aggregates valid children by median, giving each raw parent one vote.
+
+The old exhaustive trainer and native replacement-per-NPZ sampler are separate
+protocols. Neither is selected by this experiment; the legacy gate stays intact.
+
+## Next task only: launch and resume
+
+After checking that Phase1 reports ready, the following detached launcher runs
+`full_train -> final_epe -> report`. It is **not launched by Phase1**:
 
 ```bash
 cd /home/bupt/projects/SLiM-master
-source /home/bupt/miniconda3/etc/profile.d/conda.sh
-conda activate slim
-PYTHONDONTWRITEBYTECODE=1 python reliability_engineering_recovery.py \
-  --config configs/reliability_v1.json \
-  --source-run runs/reliability_v1_20261114T172319 \
-  --run-dir runs/reliability_v1_20261114T172319/recovery_20261114T201118
+bash launch_reliability_phase2.sh --config configs/reliability_phase2_20261115.json
 ```
 
-This entry only dispatches core engineering. Its fixed-seed 8+4 manifest selects
-committed, hash-verified pairs, excludes test scenes/pairs, and separates training
-and validation scenes. It is explicitly ineligible for formal training.
-Three actual pairs exercise the corrected-coordinate baseline regression; the
-real training, validation and checkpoint/RNG/optimizer/cursor recovery chain then
-runs at most 50 physical optimizer updates including recovery branches and retries.
-A supervisor monitors the current boot's storage log, host backing-volume space,
-available memory and swap, and records failures without modifying WSL configuration.
-
-The current recovery passed core engineering with 34 physical updates, a real
-checkpoint, and exact next-step recovery equality. The full audit remains
-incomplete. Scope and evidence are recorded in
-`runs/reliability_v1_20261114T172319/recovery_20261114T201118/`.
-Historical storage failure evidence is preserved in the original run.
-
-## Bounded audit
-
-`reliability_data.py --resume-audit --max-new-indices 1` supports a single-index
-boundary and durable candidate-batch cursors. The original committed index chunks
-are reused after identity verification. File/frame caches hold at most 256
-entries; SQLite handles deduplication and ordering on disk. The raw-pickle
-index decoder runs in an isolated process with at most 1 GiB address space.
-An oversized or failed index blocks progress; it is not silently skipped.
-The recovery report records measured pilot limits and unfinished integrity checks.
-
-## Formal training gates
-
-The legacy `reliability_stage.py --run-stage engineering` remains the path for
-acceptance against a completed final manifest. The separate core receipt cannot
-substitute for its full-manifest receipt. Both the CLI and direct `full_train`
-function require:
-
-- Complete configured-index audit with no missing indices or unfinished transactions.
-- Final immutable train/validation manifests, scene isolation and test exclusions.
-- Full-manifest engineering acceptance matching code/config/data/profile identity.
-- An explicitly confirmed training protocol matching the implemented sampler.
-- Complete numeric time/storage costs and a matching cost configuration.
-
-The native dataset uses overlap strictly greater than 0.0 and its sampler draws
-100 times **with replacement per NPZ subset** (36,800 nominal visits for all 368
-configured subsets before final holdout). The new trainer instead visits every
-final training pair once per epoch. This protocol difference is unresolved.
-No formal 10-epoch training, `evaluate`, or `all` was started in this recovery.
-
-Legacy `formal_budget.json` output is insufficient for the stricter gate: the
-future cost-generation path needs matching identity, numeric validation costs,
-the final pair counts and confirmed protocol fields. Merely invoking `all` does
-not resolve these prerequisites. Warm smoke timings are planning evidence only.
-
-Checkpoints atomically commit content-addressed payloads with optimizer, RNG,
-sampler cursor and experiment identity. CPU fixtures cannot replace real-data
-training and recovery acceptance.
+Resume the failed stage and continue the pipeline:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -p 'test_reliability*.py' -v
+bash launch_reliability_phase2.sh --config configs/reliability_phase2_20261115.json --resume
+```
+
+Resume only final EPE after completed training:
+
+```bash
+bash launch_reliability_phase2.sh --config configs/reliability_phase2_20261115.json --stage final_epe --resume
+/home/bupt/miniconda3/envs/slim/bin/python reliability_phase2.py report --config configs/reliability_phase2_20261115.json
+```
+
+For syntax/path review only, add `--dry-run`; it starts no workers and writes
+no output. The launcher records PID, logs and heartbeat, stops on stage failure,
+and records the exact affected-stage resume command. Storage faults stop the
+private worker process group without shutting down WSL.
+
+Formal launch requires all eight full Phase1 checks, complete368-index audit,
+disjoint final scenes, exact code/config/weight/manifest/statistics/plan identity,
+resolved label reviews, and explicit protocol and storage cost. An engineering
+smoke receipt cannot bypass these checks. Fixed-validation file changes pause
+validation. Invalid training visits retain their planned positions without
+replacement; more than20 skips among the first100 planned visits pauses training.
+
+```bash
+/home/bupt/miniconda3/envs/slim/bin/python -m unittest discover -s tests -p 'test_reliability*.py' -v
 ```

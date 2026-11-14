@@ -223,8 +223,8 @@ def _decode_index_bounded(source,mapping,run,config,source_sha,mapping_sha):
     key=hashlib.sha256(canonical_json({"source":source_sha,"mapping":mapping_sha,"schema":"normalized_index_v2"}).encode()).hexdigest()
     final=folder/(key+".sqlite");receipt=folder/(key+".json")
     cap=int(config.get("audit_decode_memory_bytes",1024**3))
-    if cap<256*1024**2 or cap>1024**3:
-        raise ValueError("Registered bounded decoder cap must be 256MiB..1GiB")
+    if cap<256*1024**2 or cap>2*1024**3:
+        raise ValueError("Registered bounded decoder cap must be 256MiB..2GiB")
     expected={"source_sha256":source_sha,"mapping_sha256":mapping_sha,"schema":"normalized_index_v2"}
     if final.exists() and receipt.exists():
         saved=json.loads(receipt.read_text())
@@ -366,7 +366,7 @@ def audit_data(config, run_dir):
         state=dict(status=status,index_position=index_no,index_count=len(stems),index=index_id,cursor=cursor,counts=dict(counts),
             elapsed_s=time.time()-started,unique_files=sum(v for k,v in counts.items() if k.startswith("file_")),
             committed_indices=db.execute("SELECT COUNT(*) FROM audit_chunks").fetchone()[0],
-            pid=os.getpid(),resources=resources,cache_entries=len(filecache),frame_cache_entries=len(framecache),newly_completed_indices=newly_completed)
+            pid=os.getpid(),resources=resources,database_bytes=dbpath.stat().st_size,wal_bytes=Path(str(dbpath)+"-wal").stat().st_size if Path(str(dbpath)+"-wal").exists() else 0,cache_entries=len(filecache),frame_cache_entries=len(framecache),newly_completed_indices=newly_completed)
         atomic_json(evidence/"data_audit_progress.json",state)
         with resource_log.open("a") as handle:handle.write(canonical_json(state)+"\n");handle.flush()
         print(canonical_json(state),flush=True)
@@ -415,7 +415,10 @@ def audit_data(config, run_dir):
         counts["file_"+value["status"]]+=1;put(filecache,key,value);return value
     try:
         progress(len(completed),"resume_identity_verified")
-        for index_no,stem in enumerate(stems):
+        priority=config.get("audit_priority_index")
+        if priority is not None and priority not in stems:raise ValueError("Unknown priority index")
+        audit_order=([priority]+[s for s in stems if s!=priority]) if priority else stems
+        for index_no,stem in enumerate(audit_order):
             if stem in completed:continue
             if max_new is not None and newly_completed>=int(max_new):break
             source=indexroot/(stem+".npz");scene=_scene(stem)
