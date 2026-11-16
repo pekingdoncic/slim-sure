@@ -1,0 +1,16 @@
+{
+  "EPE": "P1/P2/P2b/P3 use committed Phase3 reconstructed EPE_T for exact reproduction. P4 t0..t3 from cached trajectory and GT; t4 uses historical native final coordinates/native_final_EPE. Threshold disagreement counts in independent_checks.",
+  "G7": "All step effects/intervals computed. Confirmation follows3,2,1,0 and stops at first non-pass. Assessments for shorter steps after stopping are descriptive only.",
+  "aggregation": "P1 primary pooled counts. P2/P2b/P3/P4 non-pose metrics: within-pair -> mean within scene -> equal scenes; pooled proportions separately named. Undefined excludes only its own metric; differences use joint defined pairs.",
+  "concrete_ties": "Only P2b/P3 concrete selection explicitly sorts (-score,parent ID,native ordinal). P3 cutoff groups and selected/excluded members are separately counted.",
+  "coverage": "32px grid over cached R832 valid image extent, partial boundary cells included. Out-of-rectangle coordinates do not occupy cells but remain in solver population.",
+  "degenerate_epipolar": "Nonfinite epipolar distance caused by degenerate denominator counts as not below threshold and is counted separately; valid coordinate/score/EPE nonfinite values remain faults.",
+  "native_order": "Historical native fine output row order: coarse-window order, then within-window torch.topk(default sorted=True) on native dual-softmax, followed by threshold mask. Original equal-score topk order retained.",
+  "native_score": "src/slim.py:834-904 uses dual softmax(sim_matrix_f), K=int(min(max_fine_matches/M,Lf)), global maximum*fine_match_thres. Phase3 fine recomputed in float32; do not assume identical finite-precision order.",
+  "pose": "Same frozen canonical solver via Phase3 one-seed adapter; 3 CPU workers, one numerical thread each. 500 historical baseline units reused. Whole-scene resampling preserves all methods and five seeds.",
+  "random_median": "\u5747\u5300\u968f\u673a\u9009\u62e9\u5206\u5e03\u7684\u4e2d\u4f4d EPE\uff1a\u6bcfpair\u6bcf\u7b26\u5408\u4e3b\u5206\u6790\u7684\u7a97\u53e3\u6743\u91cd1\uff0c\u7a97\u53e3\u5185\u6bcf\u6709\u6548\u5019\u9009\u6743\u91cd1/v_i\uff1b\u7d2f\u8ba1\u6743\u91cd\u9996\u6b21\u8fbe\u523050%\u7684\u8bef\u5dee\uff0c\u518dpair\u2192scene\u6c47\u603b\u3002",
+  "random_seed": "Phase3-style SHA256 digest of seed2026, pair_id, purpose='fixed_child_random_prefix', first8 hex -> default_rng permutation. Same permutation prefixes for both budgets. P2b uses exact expectations.",
+  "retention": "Per-pair ceil(rate*all_children) before GT. No-GT children participate in score/selection/pose/epipolar/coverage. Incomplete full-population score invalidates all post-filter metrics for that method/budget.",
+  "score_arithmetic": "head cache is a logit. head_p=expit(float64(logit)). Products use float64, no fitted weights, temperature or thresholds. Exact ties need not all be caused by precision; inherited-parent ties separately counted.",
+  "statistical_ties": "Frozen Spearman/AUROC functions unchanged. Frozen sparsification internally uses score and supplied IDs: the Phase3 encoding of (parent,native ordinal) is preserved. No jitter or extra ranking before metrics. Curves use the same frozen Phase3 order."
+}
