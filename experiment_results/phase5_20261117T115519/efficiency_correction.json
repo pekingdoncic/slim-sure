@@ -1,0 +1,56 @@
+{
+  "affected_units": "No efficiency pair had committed; final_A/B100 committed pair caches and all training/checkpoints are unaffected.",
+  "after_sha": "38281219856aeed1650ac4c5f8daaec9dfba5f1558ea0142aa4a8c154543809c",
+  "before_sha": "463b8c34381c1cf65d8d3a85b5f060b95b7a9cbfe566f9726c318d546946e1e9",
+  "cause": "Timing path used one head batch, while committed full evaluation uses4096 chunks. GPU batch-dependent rounding propagated to one coordinate ULP.",
+  "correction": "Use exact existing4096 head batching in timed path, concatenate all mu on GPU, retain complete output and same coordinate precision/tolerance.",
+  "diagnostic": {
+    "checkpoint_fixed_epoch": 2,
+    "frozen": true,
+    "old_efficiency_sha": "463b8c34381c1cf65d8d3a85b5f060b95b7a9cbfe566f9726c318d546946e1e9",
+    "optimizer_updates": 0,
+    "pair": {
+      "direction": "0to1",
+      "pair_id": "0390f67ea515488ee6d416dfae3aa397",
+      "scene": "0003"
+    },
+    "routes": {
+      "A": {
+        "cached_target_dtype": "float32",
+        "chunk_mu_max": 0.0,
+        "chunk_target_different_scalars": 0,
+        "chunk_target_max": 0.0,
+        "decode_gpu_vs_cpu_max": 0.0,
+        "initial_dtype": "torch.float32",
+        "original_path_target_max": 0.0,
+        "parent_equal": true,
+        "points": 1186,
+        "source_equal": true,
+        "whole_mu_max": 0.0,
+        "whole_target_different_scalars": 0,
+        "whole_target_max": 0.0
+      },
+      "B": {
+        "cached_target_dtype": "float32",
+        "chunk_mu_max": 0.0,
+        "chunk_target_different_scalars": 0,
+        "chunk_target_max": 0.0,
+        "decode_gpu_vs_cpu_max": 0.0,
+        "initial_dtype": "torch.float32",
+        "original_path_target_max": 6.103515625e-05,
+        "parent_equal": true,
+        "points": 5919,
+        "source_equal": true,
+        "whole_mu_max": 8.046627044677734e-07,
+        "whole_target_different_scalars": 53,
+        "whole_target_max": 6.103515625e-05
+      }
+    },
+    "status": "diagnosed",
+    "time_beijing": "2026-11-17T14:50:16.639282+08:00"
+  },
+  "kind": "ordinary_implementation_error",
+  "resume_stage": "evaluate --resume",
+  "time_beijing": "2026-11-17T14:51:24.973099+08:00",
+  "training_retries": 0
+}

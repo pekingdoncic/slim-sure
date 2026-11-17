@@ -1,0 +1,195 @@
+{
+  "GT1": {
+    "comparison": "S2-S0 low-texture source-grid any-parent usable EPE<2 recall",
+    "positive_lower_gt": 0.05,
+    "small_upper_lt": 0.02
+  },
+  "GT2": {
+    "denominator": "S2 newly added low parents with valid median final EPE",
+    "negative_le": 0.4,
+    "positive_ge": 0.6
+  },
+  "GT3": {
+    "equal_N0_N1_each_pair_required": true,
+    "recall_ci_lower_gt": 0,
+    "time_ratio_le": 1.1
+  },
+  "Phase5": {
+    "A": {
+      "K": 32,
+      "R": 8,
+      "activation": "GELU",
+      "axis_hidden": 64,
+      "cap": 1024,
+      "coarse_project": 128,
+      "fine_quadrant_project": 128,
+      "fusion_layers": [
+        128,
+        128
+      ],
+      "normalization": "LayerNorm",
+      "shared_sides": true,
+      "side_layers": [
+        128,
+        128
+      ],
+      "window": "native 8x8 fine cells; 4x4 quadrant means TL,TR,BL,BR"
+    },
+    "B": {
+      "K": 12,
+      "R": 3,
+      "activation": "GELU",
+      "axis_hidden": 64,
+      "cap": 2048,
+      "conv_channels": [
+        64,
+        64
+      ],
+      "kernel": 3,
+      "linear": 128,
+      "normalization": "GroupNorm 8 groups",
+      "padding": 1,
+      "window": "native bilinear 6x6 fine cells at t0"
+    },
+    "G10": "A-native parent median lt2 lower>=-.02 AND actual fine-stage latency lower",
+    "G8": "B-t1 lt1: lower>0 superior; else lower>=-.01 noninferior; upper<-.01 worse; otherwise insufficient",
+    "G9": "rho(-epistemic,EPE)-rho(fine,EPE): upper<0 better; lower>0 worse; otherwise insufficient",
+    "checkpoint": "head+AdamW+scaler+all RNG+cursor; atomic pointer; epoch2 fixed; no best selection",
+    "epochs": 2,
+    "final_pairs": 100,
+    "formal_seeds": {
+      "A": 2026,
+      "B": 2026
+    },
+    "head_precision": "float32 head, optimizer and NIG; frozen backbone AMP. Matches reliability_v1.runtime.Runtime.logits autocast(enabled=False).",
+    "loss": "specified normalized NIG NLL + abs(u-y)*(2nu+alpha), equal weight; samples/axes mean",
+    "official_reset": "destroy selftest head, optimizer, scaler, RNG; seed 2026 and cursor0",
+    "optimizer": {
+      "betas": [
+        0.9,
+        0.999
+      ],
+      "eps": 1e-08,
+      "lr": 0.001,
+      "name": "AdamW",
+      "scheduler": null,
+      "weight_decay": 0.0001
+    },
+    "order": [
+      "E0",
+      "A",
+      "B",
+      "final"
+    ],
+    "scaler": "torch.cuda.amp.GradScaler(enabled=False); empty state still saved/restored",
+    "selftest_criteria": "last20 loss <first20; mean EPE at update200 <zero-offset on frozen point set; all finite",
+    "selftest_pairs": "first 8 distinct pairs in frozen epoch 0 order",
+    "selftest_seed": 2027,
+    "selftest_updates": 200,
+    "stable_floors": {
+      "alpha_minus_one": 0.0001,
+      "beta": 1e-06,
+      "nu": 1e-06
+    },
+    "supervision": "GT valid AND Linf offset strictly <R; all valid GT for evaluation",
+    "validation_per_epoch": 750,
+    "visits_per_epoch": 13800
+  },
+  "T_order": [
+    "S0",
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5"
+  ],
+  "T_settings": [
+    {
+      "fraction": 0,
+      "setting": "S0",
+      "texture_budget": false,
+      "threshold": 0.65
+    },
+    {
+      "fraction": 0,
+      "setting": "S1",
+      "texture_budget": false,
+      "threshold": 0.55
+    },
+    {
+      "fraction": 0,
+      "setting": "S2",
+      "texture_budget": false,
+      "threshold": 0.45
+    },
+    {
+      "fraction": 0,
+      "setting": "S3",
+      "texture_budget": false,
+      "threshold": 0.3
+    },
+    {
+      "fraction": 0,
+      "setting": "S4",
+      "texture_budget": false,
+      "threshold": null
+    },
+    {
+      "fraction": 0.2,
+      "setting": "S5",
+      "texture_budget": true,
+      "threshold": 0.65
+    }
+  ],
+  "T_timing": {
+    "exclude": "GT/statistics/file writes",
+    "repeats": 3,
+    "statistic": "per-pair median; scene-equal ratios",
+    "synchronization": "CUDA before/after",
+    "warmup": 1
+  },
+  "aggregation": "per pair -> mean within scene -> scene equal; paired common units; 2000 whole-scene bootstrap seed2026",
+  "created": "2026-11-17T11:55:22.366911+08:00",
+  "degradation_order": [
+    "T S3/S4 pose",
+    "T S1",
+    "Phase5 pose",
+    "T segmented timing",
+    "A efficiency timing"
+  ],
+  "final_pairs_sha": "f73b511e0d29fb854ab5358d464ce8fb28e273ea6052f844f053b8abde420e4d",
+  "geometry": {
+    "backend": "canonical LO-RANSAC",
+    "confidence": 0.99999,
+    "pixel_threshold": 0.5,
+    "seeds": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "workers": 3
+  },
+  "identity": "1dc74dff202052885202e401ecf8fe44c40714b5877f0f547320aad86661808a",
+  "inference_GT_use": "none; only supervision/offline evaluation/oracle",
+  "no_A4": true,
+  "no_MegaDepth1500": true,
+  "plans": {
+    "epoch_00": "8740bd258f70523c1498a3216acdd1fdb534e4057028bb2fb7b1590948b19a94",
+    "epoch_01": "62ace6f641fe0810adcba64307a008ea1325e1b192981dd1241719d8a8d2b60c"
+  },
+  "pre_E0_implementation_correction": {
+    "field": "Phase5 head_precision and scaler",
+    "reason": "Static code review: frozen Phase2 runs head in float32. Preserve that policy; no Phase5 forward/training/validation outcomes exist.",
+    "time_beijing": "2026-11-17T12:14:00.638819+08:00"
+  },
+  "required_preserved": [
+    "identity/resources",
+    "T S0/S2/S5 GT1-GT3",
+    "P5 E0 B training G8/G9",
+    "A training G10 precision"
+  ],
+  "ties": "frozen metrics unchanged; concrete selection ties by stable parent ID then original child ordinal",
+  "validation_sha": "4c5b96020179cfee6b71e27f46c67cd06dc5389ffa832a25fa979e2f715157e5"
+}
