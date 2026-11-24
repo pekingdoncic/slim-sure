@@ -1,0 +1,115 @@
+{
+  "baseline": "A1 preregistered paired reference; A2 independent full100 process, fluctuation only",
+  "definitions": {
+    "GT": "stride8 center+4; half-open correct target cell; existing visible projection; child own source",
+    "recall": "fixed evaluable source grid, any target parent yields valid child EPE<2; each source once",
+    "texture_threshold": 0.0001920461654663086
+  },
+  "frozen_at": "2026-11-23T22:44:36.528066+08:00",
+  "gate": {
+    "H_over_U_min": 0.05,
+    "U_positive": true,
+    "V_min": 30,
+    "V_over_U_min": 0.05,
+    "V_scenes_min": 3
+  },
+  "native": {
+    "AMP": true,
+    "batch_size": 1,
+    "norm_threshold": 0.65,
+    "resolution": 832,
+    "seed": 2026,
+    "selection": "native flattened global torch.topk K=min(6000,N0,N1), then strictly P>max(P)*0.1; original order/ties retained",
+    "texture_budget": false
+  },
+  "neighborhood": {
+    "C_tie": "prefer B target, then P descending and targetID",
+    "affine": "R4 same anchors; centered and scale normalized; full rank, cond<=100, finite, median residual<=2; exactly3 separate",
+    "anchors": "protected native row-and-column rank1; distinct source; exclude query source; nearest source Euclidean coarse-grid radius, distance then sourceID then targetID",
+    "exploratory_radii": [
+      8,
+      12
+    ],
+    "gaussian_denominator": 8,
+    "max_anchors": 8,
+    "min_anchors": 3,
+    "primary_radius": 4,
+    "residual_median_limit": 2,
+    "translation": "coordinatewise median displacement; median Euclidean residual<=2",
+    "weight": 0.5
+  },
+  "ordering": [
+    "stage0_inventory",
+    "A1",
+    "A2",
+    "checkpoint0",
+    "stage1",
+    "checkpoint1",
+    "B0",
+    "B",
+    "oracle",
+    "coverage_R4",
+    "checkpoint2A",
+    "C_if_gate",
+    "checkpoint2B",
+    "optional_radii_affine",
+    "stop_for_stage3_confirmation"
+  ],
+  "quota": {
+    "allocator": "largest feasible r<=q; protect first M-r; r distinct low source grids not covered by protected entries; positive finite top5 nonempty; sources by row maximum P descending then original source ID",
+    "fraction": 0.1,
+    "pool": "top5 positive finite P targets among unchanged native candidates, no column rank restriction",
+    "q": "floor(fraction*M)",
+    "score_B": "2/(row_rank+column_rank), ranks in full P; score ties P descending then target raw grid ID"
+  },
+  "reference": "d033f6dbb47c2e650390ba6053a22ac921fd5f3e",
+  "resource": {
+    "forecast_new_gib": 4,
+    "full_distance_matrix": false,
+    "max_rank_block": 256,
+    "persist_full_matrix": false,
+    "rank_block": 128,
+    "reserve_gib": 2
+  },
+  "schema": "coarse_rank_quota_neighborhood_v1",
+  "stage3": {
+    "allowed_methods_after_approval": [
+      "A",
+      "B0",
+      "B",
+      "C_if_gate"
+    ],
+    "confirmation_required": true,
+    "independent_model_runs": 0,
+    "oracle_and_exploratory_not_independent": true
+  },
+  "statistics": {
+    "aggregation": "pair -> scene -> equal scene",
+    "bootstrap": 2000,
+    "diagnostic_exploratory": true,
+    "independent_scene_min": 10,
+    "seed": 2026
+  },
+  "tolerance": {
+    "comparisons": [
+      "A1-history",
+      "A2-history",
+      "A2-A1"
+    ],
+    "count_absolute_limits": {
+      "any_good": 3,
+      "both_pass": 7,
+      "correct_parent": 3,
+      "parents": 194
+    },
+    "count_reference": {
+      "any_good": 3486,
+      "both_pass": 7728,
+      "correct_parent": 3576,
+      "parents": 194383
+    },
+    "denominator_exact": 7954,
+    "directional_shift": "abs(scene difference)>0.001 in same direction for >=ceil(2/3 common scenes); structural errors not tolerated",
+    "scene_equal_recall_absolute": 0.001
+  }
+}
