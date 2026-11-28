@@ -1,0 +1,163 @@
+import argparse, datetime, fcntl, hashlib, json, math, os, time
+from pathlib import Path
+import numpy as np
+import torch
+from .data import BASE,CACHE,EXP,N,OUT,ROOT,SEED,U,loader,prepare,read,save,sha
+from .engine import update
+from .evaluate import validate
+from .model import components
+from ..training.train import state_rng,restore_rng
+
+def stamp():return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+
+class Coverage:
+    def __init__(self,n_bins):
+        self.rows=np.zeros(N,dtype=bool);self.physical=np.zeros(U,dtype=bool)
+        self.bin_counts=np.zeros(n_bins,dtype=np.int64)
+        self.nr=self.nu=self.visits=self.invalid=self.no_fine_gt=0
+    def add(self,samples):
+        for s in samples:
+            position,row,physical,bi=s["identity"]
+            if position!=self.visits:raise RuntimeError("lost, duplicated, or reordered cursor")
+            if not self.rows[row]:self.nr+=1;self.rows[row]=True
+            if not self.physical[physical]:self.nu+=1;self.physical[physical]=True
+            self.bin_counts[bi]+=1;self.visits+=1
+            self.invalid+=int(bool(s.get("skip_reason")))
+            self.no_fine_gt+=int(s.get("valid_gt")==0)
+    def status(self):
+        return dict(visits=self.visits,unique_rows=self.nr,unique_unordered=self.nu,
+                repeated_rows=self.visits-self.nr,repeated_unordered=self.visits-self.nu,invalid_supervision=self.invalid,zero_valid_fine_gt=self.no_fine_gt,
+                ordered_coverage=self.nr/N,unordered_coverage=self.nu/U,bins_visited=int((self.bin_counts>0).sum()))
+    def pack(self):
+        return dict(ordered=np.packbits(self.rows),unordered=np.packbits(self.physical),bins=self.bin_counts,invalid=self.invalid,no_fine_gt=self.no_fine_gt)
+    def restore(self,c):
+        self.rows=np.unpackbits(c["ordered"],count=N).astype(bool);self.physical=np.unpackbits(c["unordered"],count=U).astype(bool)
+        self.bin_counts=c["bins"];self.visits=int(self.bin_counts.sum());self.invalid=int(c["invalid"]);self.no_fine_gt=c["no_fine_gt"]
+        self.nr=int(self.rows.sum());self.nu=int(self.physical.sum())
+
+def ensure_extended(k):
+    for n in range(1,k):
+        p=CACHE/f"order_{SEED+n}.npy"
+        with (CACHE/"prepare.lock").open("a") as lk:
+            fcntl.flock(lk,fcntl.LOCK_EX)
+            if not p.exists():
+                ar=np.arange(N,dtype=np.int32);np.random.default_rng(SEED+n).shuffle(ar)
+                tmp=p.with_suffix(".tmp")
+                with tmp.open("wb") as f:np.save(f,ar)
+                tmp.replace(p)
+
+def development(d,model,step,limit,mode,variant):
+    scope=("smoke" if mode=="smoke" else "full") if step in (0,limit) else "quarter"
+    rng=state_rng()
+    iters=model.refine_iters
+    routes=[("native",iters)]
+    if variant in ("exp0","rru_matched") and step in (0,limit):routes.append(("rru1",1))
+    try:
+        for label,it in routes:
+            model.refine_iters=it
+            for side in (640,832):
+                folder=d/"validation"/f"step_{step:08d}"/label/f"r{side}"
+                receipt=folder/"accepted.json"
+                if not receipt.exists():
+                    attempt=folder/stamp()
+                    scores=validate(model,side,BASE,attempt,scope)
+                    save(receipt,dict(scope=scope,side=side,step=step,attempt=str(attempt.relative_to(d)),scores=scores))
+    finally:
+        model.refine_iters=iters;model.pyramid=None;restore_rng(rng)
+
+def main():
+    p=argparse.ArgumentParser()
+    p.add_argument("--exp",choices=["exp0","exp1a","rru_matched","single","crop","joint"],required=True)
+    p.add_argument("--mode",choices=["smoke","screening","extended"],default="screening")
+    p.add_argument("--cycles",type=int,choices=(3,4,5));p.add_argument("--until",type=int)
+    a=p.parse_args()
+    if a.until is not None and a.mode!="smoke":raise ValueError("early stop only for engineering smoke")
+    if (a.mode=="extended")!=(a.cycles is not None):raise ValueError("extended requires an explicit 3–5 cycle count")
+    inputs=prepare()
+    cache=EXP/"cache/sampler"/inputs["pool"]
+    if any(sha(cache/k)!=v for k,v in read(OUT/"index_file_sha256.json").items()):raise RuntimeError("Frozen pair index changed")
+    cycles=a.cycles or 1
+    if a.mode=="extended":ensure_extended(cycles)
+    budget=80 if a.mode=="smoke" else N*cycles
+    total=math.ceil(budget/4)
+    mode=a.mode if a.mode!="extended" else f"extended_{cycles}"
+    cfgs=read(OUT/"selected_config.json")
+    parent=EXP/"outputs/fast_screening_v1"/mode
+    d=(parent/cfgs["id"]/a.exp) if a.mode=="smoke" else parent/a.exp
+    d.mkdir(parents=True,exist_ok=True)
+    lock=(d/"writer.lock").open("a");fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    cfgs=read(OUT/"selected_config.json")
+    torch.set_num_threads(2)
+    frozen=dict(protocol=inputs,config={k:cfgs[k] for k in ("bs","cp","workers","pin","persist","prefetch")},
+                exp=a.exp,mode=mode,planned=total,visits=budget,seed=66,resolution=640,selection_protocol_sha256=sha(EXP/"protocols/fast_screening_v1_selection.md"),
+                full_dev_digests=sha(EXP/"manifests/dev_manifest_hashes.json"),index_digests=sha(OUT/"index_file_sha256.json"),weights_sha256=sha(ROOT/"ckpt/megadepth_19epochs.ckpt"),parent_sources=sha(EXP/"manifests/source_identity.json"),
+                extended_orders=[sha(CACHE/f"order_{66+i}.npy") for i in range(1,cycles)],
+                sources={name:sha(EXP/name) for name in ["screening/"+f+".py" for f in ("train","data","model","engine","evaluate")]+
+                    ["models/slim_wrapper.py","training/optimization.py","training/train.py","training/data.py","evaluation/development.py"]})
+    if frozen["weights_sha256"]!=read(EXP/"manifests/full_budget.json")["weights_sha256"]:raise RuntimeError("Original initialization changed")
+    manifest=d/"identity.json"
+    if manifest.exists() and read(manifest)!=frozen:raise RuntimeError("Run identity changed; old checkpoint preserved")
+    if not manifest.exists():save(manifest,frozen)
+    if a.mode!="smoke" and not (d/"frozen_sources.tar.gz").exists():
+        import tarfile
+        tmp=d/"frozen_sources.tmp"
+        with tarfile.open(tmp,"w:gz") as tar:
+            for name in sorted(frozen["sources"]):tar.add(EXP/name,arcname=name,recursive=False)
+            for name in ("protocols/fast_screening_v1.md","protocols/fast_screening_v1_selection.md"):
+                tar.add(EXP/name,arcname=name,recursive=False)
+        tmp.replace(d/"frozen_sources.tar.gz")
+    if (d/"complete.json").exists():print("Already complete",d);return
+    identity=sha(manifest)
+    coverage=Coverage(len(read(EXP/"manifests/train_pool.json")["bins"]))
+    # Fork CPU decode workers before CUDA, pinning threads, or validation initializes native runtimes.
+    last=d/"checkpoint_last.pt"
+    restored=torch.load(last,map_location="cpu") if last.exists() else None
+    start_cursor=restored["cursor"] if restored is not None else 0
+    stop=min(a.until or total,total)
+    it=None
+    if start_cursor<min(budget,4*stop):
+        ds=loader(start_cursor,min(budget,4*stop),cfgs["bs"],cfgs["workers"],bool(cfgs["pin"]),bool(cfgs["persist"]),cfgs["prefetch"])
+        it=iter(ds)
+    model,cfg,loss,pol=components(a.exp,bool(cfgs["cp"]),total)
+    initial_bn={k:v.cpu() for k,v in model.bn_snapshot().items()}
+    step=0;elapsed=0.;peak=[0,0];min_free=None;active_before=0.;session_start=time.monotonic()
+    last=d/"checkpoint_last.pt"
+    def progress():
+        return dict(step=step,planned=total,**coverage.status(),train_seconds=elapsed,active_wall_seconds=active_before+time.monotonic()-session_start,min_free_bytes=min_free,peak_bytes=peak,lr=[g["lr"] for g in pol.optimizer.param_groups])
+    def checkpoint():
+        bn={k:v.cpu() for k,v in model.bn_snapshot().items()}
+        if not all(torch.equal(v,initial_bn[k]) for k,v in bn.items()):raise RuntimeError("BN drift")
+        tmp=last.with_suffix(".tmp")
+        torch.save(dict(identity=identity,step=step,coverage=coverage.pack(),model=model.state_dict(),optimizer=pol.optimizer.state_dict(),
+                        scheduler=pol.scheduler.state_dict(),rng=state_rng(),scaler=None,bn=bn,seconds=elapsed,peak=peak,cursor=coverage.visits,min_free=min_free,active_seconds=active_before+time.monotonic()-session_start),tmp)
+        tmp.replace(last);save(d/"progress.json",progress())
+    if restored is not None:
+        c=restored;restored=None
+        if c["identity"]!=identity:raise RuntimeError("Checkpoint identity mismatch")
+        model.load_state_dict(c["model"]);pol.optimizer.load_state_dict(c["optimizer"]);pol.scheduler.load_state_dict(c["scheduler"])
+        step=c["step"];elapsed=c["seconds"];peak=c["peak"];min_free=c["min_free"];active_before=c["active_seconds"];coverage.restore(c["coverage"]);pol.apply(step)
+        if coverage.visits!=c["cursor"] or c["cursor"]!=min(step*4,budget) or pol.scheduler.last_epoch!=step:raise RuntimeError("Resume cursor mismatch")
+        if not all(torch.equal(v.cpu(),c["bn"][k]) for k,v in model.bn_snapshot().items()):raise RuntimeError("BN mismatch on resume")
+        restore_rng(c["rng"]);del c
+        print("RESUMED",step,coverage.visits,flush=True)
+    marks={0,total} if a.mode=="smoke" else {0,total,*[math.ceil(total*f/4) for f in (1,2,3)]}
+    if step in marks:
+        checkpoint();development(d,model,step,total,a.mode,a.exp)
+    if step<stop:
+        assert it is not None and coverage.visits==start_cursor
+        with (d/("updates_"+stamp()+".jsonl")).open("x",buffering=1) as stream:
+            while step<stop:
+                n=min(4,budget-coverage.visits)
+                rec=update(it,n,cfgs["bs"],model,cfg,loss,pol,step,check_grad=step in {0,pol.warmup,pol.warmup+1})
+                coverage.add(rec["samples"]);step+=1;elapsed+=rec["seconds"]
+                min_free=min(rec["min_free_now"],min_free) if min_free is not None else rec["min_free_now"]
+                peak=[max(peak[0],rec["allocated"]),max(peak[1],rec["reserved"])]
+                stream.write(json.dumps(rec,allow_nan=False)+"\n")
+                if step%250==0 or step in marks or step in (1,stop):checkpoint()
+                if step in marks:development(d,model,step,total,a.mode,a.exp)
+    if step==total:
+        if a.mode!="smoke" and (coverage.nr!=N or coverage.nu!=U or coverage.visits!=budget):raise RuntimeError("Incomplete full pool")
+        save(d/"complete.json",dict(identity=identity,checkpoint_sha256=sha(last),**progress(),completed_utc=stamp()))
+    print(mode,a.exp,progress(),flush=True)
+
+if __name__=="__main__":main()

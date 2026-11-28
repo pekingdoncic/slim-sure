@@ -1,0 +1,232 @@
+{
+  "schema_version": 3,
+  "current_phase": "fast_screening",
+  "budget": "screening",
+  "final_test_authorized": false,
+  "protocol_sha256": "5bd9594ce41e3d7953f60f47b3cbe2c030a8884ecba8282710299fa433e6f440",
+  "phases": {
+    "00": {
+      "engineering": "PASS",
+      "science": "NOT_EVALUATED",
+      "report": "reports/phase_00.md",
+      "artifacts": [
+        "manifests/train_pool.json",
+        "manifests/source_identity.json",
+        "source_audit.md",
+        "requirements_notes.md",
+        "protocol_draft.md",
+        "logs/audit"
+      ],
+      "commands": [
+        "bash experiments/lowtex_e2e_v1/scripts/audit_pool.sh (exit 1, fixed frame extension check, exit 0)"
+      ],
+      "blocker": null,
+      "full_training": "NOT_APPLICABLE"
+    },
+    "01": {
+      "engineering": "PASS",
+      "science": "NOT_EVALUATED",
+      "report": "reports/phase_01.md",
+      "artifacts": [
+        "manifests/dev_manifest_hashes.json",
+        "protocol_frozen.md",
+        "logs/phase01"
+      ],
+      "commands": [
+        "$ bash experiments/lowtex_e2e_v1/scripts/prepare_texturepoor.sh (exit 0)",
+        "$ /home/bupt/miniconda3/envs/slim/bin/python -B -m unittest -v experiments.lowtex_e2e_v1.tests.test_texturepoor (exit 0)",
+        "$ bash experiments/lowtex_e2e_v1/scripts/prepare_texturepoor.sh (exit 0)",
+        "$ bash experiments/lowtex_e2e_v1/scripts/eval_texturepoor.sh --split val (exit 0)"
+      ],
+      "blocker": null,
+      "full_training": "NOT_APPLICABLE"
+    },
+    "02": {
+      "engineering": "RUNNING",
+      "science": "NOT_EVALUATED",
+      "report": "reports/phase_02.md",
+      "artifacts": [
+        "manifests/full_budget.json",
+        "reports/full_run.json",
+        "reports/phase_02.md",
+        "logs/phase02",
+        "logs/workflow",
+        "outputs/exp0_full/20261127T173502053843Z",
+        "outputs/smoke_smoke",
+        "reports/development_archive.json"
+      ],
+      "commands": [
+        "bash experiments/lowtex_e2e_v1/scripts/run_all.sh --help / preflight / prepare_texturepoor (each exit 0)",
+        "R640 and R832 smoke, 20 updates each; R640 validation failure and resume recorded in test_report.md",
+        "native_equivalence official training pair, default first check exit 1; native repeatability and deterministic diagnostic exit 0 each",
+        "bash experiments/lowtex_e2e_v1/scripts/run_workflow.sh (active); --status / duplicate start exit 0",
+        "bash experiments/lowtex_e2e_v1/scripts/run_all.sh exp0 --mode full --resolution 832 --seed 66 (running)"
+      ],
+      "blocker": null,
+      "full_training": "PAUSED_BY_USER_REVISION"
+    },
+    "03": {
+      "engineering": "NOT_RUN",
+      "science": "NOT_EVALUATED",
+      "report": null,
+      "artifacts": [],
+      "commands": [],
+      "blocker": null,
+      "full_training": "NOT_RUN"
+    },
+    "04": {
+      "engineering": "NOT_RUN",
+      "science": "NOT_EVALUATED",
+      "report": null,
+      "artifacts": [],
+      "commands": [],
+      "blocker": null,
+      "full_training": "NOT_RUN"
+    },
+    "05": {
+      "engineering": "NOT_RUN",
+      "science": "NOT_EVALUATED",
+      "report": null,
+      "artifacts": [],
+      "commands": [],
+      "blocker": null,
+      "full_training": "NOT_RUN"
+    },
+    "06": {
+      "engineering": "NOT_RUN",
+      "science": "NOT_EVALUATED",
+      "report": null,
+      "artifacts": [],
+      "commands": [],
+      "blocker": null,
+      "full_training": "NOT_RUN"
+    },
+    "07": {
+      "engineering": "NOT_RUN",
+      "science": "NOT_EVALUATED",
+      "report": null,
+      "artifacts": [],
+      "commands": [],
+      "blocker": null,
+      "full_training": "NOT_RUN"
+    },
+    "08": {
+      "engineering": "NOT_RUN",
+      "science": "NOT_EVALUATED",
+      "report": null,
+      "artifacts": [],
+      "commands": [],
+      "blocker": null,
+      "full_training": "NOT_APPLICABLE"
+    }
+  },
+  "final_test": "NOT_RUN",
+  "next_prompt": null,
+  "authorized_through_batch": 0,
+  "gate_status": "RUNNING",
+  "authorization_history": [
+    {
+      "at": "2026-11-27T17:11:22.701132+00:00",
+      "scope": "Batch 1–4, Phase 00–08, full training and final tests only after freeze",
+      "source": "user request"
+    },
+    {
+      "at": "2026-11-28T05:02:52.921765+00:00",
+      "scope": "RTX4080 screening; no automatic extended/full; 1D and 2A–2E deferred"
+    }
+  ],
+  "final_test_gate": "PHASE_08_FROZEN_MODEL_ONLY",
+  "experiments": {
+    "official_weights_development": {
+      "engineering": "PASS",
+      "full_training": "NOT_APPLICABLE",
+      "artifacts": [
+        "outputs/baseline_texturepoor/20261127T172409026185Z/full_dev"
+      ]
+    },
+    "exp0": {
+      "engineering": "RUNNING",
+      "full_training": "PAUSED_BY_USER_REVISION",
+      "smoke_dir": "outputs/smoke_smoke/20261127T172623286819Z",
+      "smoke": {
+        "640": {
+          "directory": "outputs/smoke_smoke/20261127T172623286819Z",
+          "checkpoint_sha256": "03f454959a9cfbbeae7dfc6bfa5262c2cb68b3b1e07bd8dfc1486618da231c64",
+          "median_update_s": 1.230680687000131,
+          "peak_allocated": 2135650304,
+          "peak_reserved": 2508193792
+        },
+        "832": {
+          "directory": "outputs/smoke_smoke/20261127T173038695130Z",
+          "checkpoint_sha256": "87d49102f9bb3ab5e883c56f2fa599430f167b5648546c3b491872044b5da095",
+          "median_update_s": 1.2725364249999984,
+          "peak_allocated": 4028516864,
+          "peak_reserved": 4655677440
+        }
+      },
+      "planned_optimizer_updates": 2267529,
+      "full_budget_sha256": "9d225d3674f119be1197fad2378089839061ae1afda830c4660c0325f78f7aef",
+      "coverage": 0.014758527139611266,
+      "completed_optimizer_updates": 32700,
+      "updated_utc": "2026-11-28T05:02:46.314050+00:00",
+      "directory": "outputs/exp0_full/20261127T173502053843Z",
+      "checkpoint": "reports/fast_screening/legacy_r832/checkpoint_32700.pt",
+      "cursor": 130800,
+      "unique_ordered_rows": 130800,
+      "unique_unordered": 130196,
+      "log_directory": "logs/workflow",
+      "pool_sha256": "6e5f6e1d7d1a82ff39cf0f414819d697c0731640a8207bfd56c2139e5f227635",
+      "protocol_sha256": "5bd9594ce41e3d7953f60f47b3cbe2c030a8884ecba8282710299fa433e6f440"
+    }
+  },
+  "full_auto_start": false,
+  "active_protocol": "protocols/fast_screening_v1.md",
+  "fast_screening_status_file": "reports/fast_screening/state.json",
+  "manual_full_only": true,
+  "deferred": [
+    "Exp-1D",
+    "Exp-2A",
+    "Exp-2B",
+    "Exp-2C",
+    "Exp-2D",
+    "Exp-2E"
+  ],
+  "archived_authorization": "reports/fast_screening/legacy_r832/state.json",
+  "current_protocol_sha256": "6971f042198abae3e62fabcb022755398e092c3bb4e30ac8f1397e233d72598b",
+  "selection_addendum_sha256": "6b44cdc2ea13960c73432cf62af1337608e5ffa97d3ac330aa57a01abd4cbace",
+  "fast_screening": {
+    "status": "RUNNING",
+    "stage": "screening_exp0",
+    "worker_pid": 1309566,
+    "progress": {
+      "step": 13000,
+      "planned": 2215669,
+      "visits": 52000,
+      "unique_rows": 52000,
+      "unique_unordered": 51900,
+      "repeated_rows": 0,
+      "repeated_unordered": 100,
+      "invalid_supervision": 3,
+      "zero_valid_fine_gt": 3,
+      "ordered_coverage": 0.005867304367429556,
+      "unordered_coverage": 0.008500966718797194,
+      "bins_visited": 368,
+      "train_seconds": 7626.800130939169,
+      "active_wall_seconds": 8042.746256087004,
+      "min_free_bytes": 2633359360,
+      "peak_bytes": [
+        5981157888,
+        6239027200
+      ],
+      "lr": [
+        2e-05
+      ]
+    },
+    "log": "logs/fast_screening/screening_exp0_1795843505382492640.log",
+    "experiment": "exp0",
+    "mode": "screening",
+    "run": "outputs/fast_screening_v1/screening/exp0",
+    "utc": "2026-11-28T07:40:06.085849+00:00",
+    "owner_pid": 1307663
+  }
+}

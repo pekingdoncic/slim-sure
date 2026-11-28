@@ -1,0 +1,125 @@
+#blocked = #triton_gpu.blocked<{sizePerThread = [8], threadsPerWarp = [32], warpsPerCTA = [2], order = [0]}>
+#blocked1 = #triton_gpu.blocked<{sizePerThread = [4], threadsPerWarp = [32], warpsPerCTA = [2], order = [0]}>
+module attributes {"triton_gpu.num-warps" = 2 : i32, "triton_gpu.threads-per-warp" = 32 : i32} {
+  tt.func public @_layer_norm_bwd_kernel_0d1d2d3d4d5d6d7d8d9d10d11d12d13d14d15d16d17d18d19d20d21d2223(%arg0: !tt.ptr<bf16> {tt.divisibility = 16 : i32}, %arg1: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg2: !tt.ptr<bf16> {tt.divisibility = 16 : i32}, %arg3: !tt.ptr<bf16> {tt.divisibility = 16 : i32}, %arg4: !tt.ptr<bf16> {tt.divisibility = 16 : i32}, %arg5: !tt.ptr<bf16> {tt.divisibility = 16 : i32}, %arg6: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg7: !tt.ptr<bf16> {tt.divisibility = 16 : i32}, %arg8: !tt.ptr<f32> {tt.divisibility = 16 : i32}, %arg9: i32 {tt.divisibility = 16 : i32}, %arg10: i32 {tt.divisibility = 16 : i32}, %arg11: i32 {tt.divisibility = 16 : i32}, %arg12: i32 {tt.divisibility = 16 : i32}, %arg13: i32 {tt.divisibility = 16 : i32}, %arg14: i32 {tt.divisibility = 16 : i32}, %arg15: i32 {tt.divisibility = 16 : i32}, %arg16: i32 {tt.divisibility = 16 : i32}, %arg17: i32 {tt.divisibility = 16 : i32}, %arg18: i32 {tt.divisibility = 16 : i32}, %arg19: f32, %arg20: i32) attributes {noinline = false} {
+    %cst = arith.constant dense<0.000000e+00> : tensor<512xf32, #blocked>
+    %cst_0 = arith.constant dense<0.000000e+00> : tensor<512xbf16, #blocked>
+    %cst_1 = arith.constant dense<1.000000e+00> : tensor<512xf32, #blocked>
+    %c1_i32 = arith.constant 1 : i32
+    %0 = tt.get_program_id x : i32
+    %1 = tt.get_program_id y : i32
+    %2 = arith.muli %0, %arg20 : i32
+    %3 = tt.make_range {end = 512 : i32, start = 0 : i32} : tensor<512xi32, #blocked1>
+    %4 = tt.make_range {end = 512 : i32, start = 0 : i32} : tensor<512xi32, #blocked>
+    %5 = tt.splat %arg18 : (i32) -> tensor<512xi32, #blocked1>
+    %6 = tt.splat %arg18 : (i32) -> tensor<512xi32, #blocked>
+    %7 = "triton_gpu.cmpi"(%3, %5) <{predicate = 2 : i64}> : (tensor<512xi32, #blocked1>, tensor<512xi32, #blocked1>) -> tensor<512xi1, #blocked1>
+    %8 = "triton_gpu.cmpi"(%4, %6) <{predicate = 2 : i64}> : (tensor<512xi32, #blocked>, tensor<512xi32, #blocked>) -> tensor<512xi1, #blocked>
+    %9 = arith.muli %2, %arg9 : i32
+    %10 = arith.muli %1, %arg18 : i32
+    %11 = arith.addi %9, %10 : i32
+    %12 = tt.addptr %arg0, %11 : !tt.ptr<bf16>, i32
+    %13 = arith.muli %2, %arg10 : i32
+    %14 = arith.addi %13, %10 : i32
+    %15 = tt.addptr %arg2, %14 : !tt.ptr<bf16>, i32
+    %16 = arith.muli %2, %arg14 : i32
+    %17 = arith.addi %16, %10 : i32
+    %18 = tt.addptr %arg7, %17 : !tt.ptr<bf16>, i32
+    %19 = arith.muli %2, %arg12 : i32
+    %20 = arith.addi %19, %10 : i32
+    %21 = tt.addptr %arg4, %20 : !tt.ptr<bf16>, i32
+    %22 = arith.muli %2, %arg13 : i32
+    %23 = arith.addi %22, %10 : i32
+    %24 = tt.addptr %arg5, %23 : !tt.ptr<bf16>, i32
+    %25 = arith.muli %2, %arg11 : i32
+    %26 = arith.addi %25, %10 : i32
+    %27 = tt.addptr %arg3, %26 : !tt.ptr<bf16>, i32
+    %28 = arith.muli %1, %arg17 : i32
+    %29 = tt.addptr %arg8, %28 : !tt.ptr<f32>, i32
+    %30 = tt.addptr %arg1, %10 : !tt.ptr<f32>, i32
+    %31 = tt.splat %30 : (!tt.ptr<f32>) -> tensor<512x!tt.ptr<f32>, #blocked1>
+    %32 = tt.addptr %31, %3 : tensor<512x!tt.ptr<f32>, #blocked1>, tensor<512xi32, #blocked1>
+    %33 = tt.load %32, %7 {cache = 1 : i32, evict = 1 : i32, isVolatile = false} : tensor<512xf32, #blocked1>
+    %34 = triton_gpu.convert_layout %33 : (tensor<512xf32, #blocked1>) -> tensor<512xf32, #blocked>
+    %35 = arith.addi %0, %c1_i32 : i32
+    %36 = arith.muli %35, %arg20 : i32
+    %37 = "triton_gpu.cmpi"(%36, %arg17) <{predicate = 2 : i64}> : (i32, i32) -> i1
+    %38 = arith.select %37, %36, %arg17 : i32
+    %39 = arith.sitofp %arg18 : i32 to f32
+    %40:7 = scf.for %arg21 = %2 to %38 step %c1_i32 iter_args(%arg22 = %cst, %arg23 = %12, %arg24 = %15, %arg25 = %18, %arg26 = %27, %arg27 = %21, %arg28 = %24) -> (tensor<512xf32, #blocked>, !tt.ptr<bf16>, !tt.ptr<bf16>, !tt.ptr<bf16>, !tt.ptr<bf16>, !tt.ptr<bf16>, !tt.ptr<bf16>)  : i32 {
+      %47 = tt.splat %arg23 : (!tt.ptr<bf16>) -> tensor<512x!tt.ptr<bf16>, #blocked>
+      %48 = tt.addptr %47, %4 : tensor<512x!tt.ptr<bf16>, #blocked>, tensor<512xi32, #blocked>
+      %49 = tt.load %48, %8, %cst_0 {cache = 1 : i32, evict = 1 : i32, isVolatile = false} : tensor<512xbf16, #blocked>
+      %50 = arith.extf %49 : tensor<512xbf16, #blocked> to tensor<512xf32, #blocked>
+      %51 = tt.splat %arg27 : (!tt.ptr<bf16>) -> tensor<512x!tt.ptr<bf16>, #blocked>
+      %52 = tt.addptr %51, %4 : tensor<512x!tt.ptr<bf16>, #blocked>, tensor<512xi32, #blocked>
+      %53 = tt.load %52, %8, %cst_0 {cache = 1 : i32, evict = 1 : i32, isVolatile = false} : tensor<512xbf16, #blocked>
+      %54 = arith.extf %53 : tensor<512xbf16, #blocked> to tensor<512xf32, #blocked>
+      %55 = tt.splat %arg24 : (!tt.ptr<bf16>) -> tensor<512x!tt.ptr<bf16>, #blocked>
+      %56 = tt.addptr %55, %4 : tensor<512x!tt.ptr<bf16>, #blocked>, tensor<512xi32, #blocked>
+      %57 = tt.load %56, %8, %cst_0 {cache = 1 : i32, evict = 1 : i32, isVolatile = false} : tensor<512xbf16, #blocked>
+      %58 = arith.extf %57 : tensor<512xbf16, #blocked> to tensor<512xf32, #blocked>
+      %59 = arith.mulf %50, %58 : tensor<512xf32, #blocked>
+      %60 = arith.subf %cst, %58 : tensor<512xf32, #blocked>
+      %61 = math.exp %60 : tensor<512xf32, #blocked>
+      %62 = arith.addf %61, %cst_1 : tensor<512xf32, #blocked>
+      %63 = arith.divf %cst_1, %62 : tensor<512xf32, #blocked>
+      %64 = arith.mulf %59, %63 : tensor<512xf32, #blocked>
+      %65 = tt.addptr %29, %arg21 : !tt.ptr<f32>, i32
+      %66 = tt.load %65 {cache = 1 : i32, evict = 1 : i32, isVolatile = false} : f32
+      %67 = tt.splat %66 : (f32) -> tensor<512xf32, #blocked>
+      %68 = arith.mulf %64, %67 : tensor<512xf32, #blocked>
+      %69 = "triton_gpu.select"(%8, %68, %cst) : (tensor<512xi1, #blocked>, tensor<512xf32, #blocked>, tensor<512xf32, #blocked>) -> tensor<512xf32, #blocked>
+      %70 = arith.mulf %69, %34 : tensor<512xf32, #blocked>
+      %71 = tt.splat %arg26 : (!tt.ptr<bf16>) -> tensor<512x!tt.ptr<bf16>, #blocked>
+      %72 = tt.addptr %71, %4 : tensor<512x!tt.ptr<bf16>, #blocked>, tensor<512xi32, #blocked>
+      %73 = arith.truncf %70 : tensor<512xf32, #blocked> to tensor<512xbf16, #blocked>
+      tt.store %72, %73, %8 {cache = 1 : i32, evict = 1 : i32} : tensor<512xbf16, #blocked>
+      %74 = arith.mulf %34, %54 : tensor<512xf32, #blocked>
+      %75 = arith.mulf %69, %74 : tensor<512xf32, #blocked>
+      %76 = "tt.reduce"(%75) <{axis = 0 : i32}> ({
+      ^bb0(%arg29: f32, %arg30: f32):
+        %104 = arith.addf %arg29, %arg30 : f32
+        tt.reduce.return %104 : f32
+      }) : (tensor<512xf32, #blocked>) -> f32
+      %77 = arith.divf %76, %39 : f32
+      %78 = tt.splat %77 : (f32) -> tensor<512xf32, #blocked>
+      %79 = arith.mulf %69, %78 : tensor<512xf32, #blocked>
+      %80 = arith.subf %74, %79 : tensor<512xf32, #blocked>
+      %81 = arith.mulf %80, %67 : tensor<512xf32, #blocked>
+      %82 = arith.mulf %54, %69 : tensor<512xf32, #blocked>
+      %83 = arith.addf %arg22, %82 : tensor<512xf32, #blocked>
+      %84 = arith.mulf %81, %50 : tensor<512xf32, #blocked>
+      %85 = arith.mulf %84, %63 : tensor<512xf32, #blocked>
+      %86 = arith.subf %cst_1, %63 : tensor<512xf32, #blocked>
+      %87 = arith.mulf %58, %86 : tensor<512xf32, #blocked>
+      %88 = arith.addf %87, %cst_1 : tensor<512xf32, #blocked>
+      %89 = arith.mulf %85, %88 : tensor<512xf32, #blocked>
+      %90 = tt.splat %arg25 : (!tt.ptr<bf16>) -> tensor<512x!tt.ptr<bf16>, #blocked>
+      %91 = tt.addptr %90, %4 : tensor<512x!tt.ptr<bf16>, #blocked>, tensor<512xi32, #blocked>
+      %92 = arith.truncf %89 : tensor<512xf32, #blocked> to tensor<512xbf16, #blocked>
+      tt.store %91, %92, %8 {cache = 1 : i32, evict = 1 : i32} : tensor<512xbf16, #blocked>
+      %93 = arith.mulf %58, %63 : tensor<512xf32, #blocked>
+      %94 = arith.mulf %81, %93 : tensor<512xf32, #blocked>
+      %95 = tt.splat %arg28 : (!tt.ptr<bf16>) -> tensor<512x!tt.ptr<bf16>, #blocked>
+      %96 = tt.addptr %95, %4 : tensor<512x!tt.ptr<bf16>, #blocked>, tensor<512xi32, #blocked>
+      %97 = arith.truncf %94 : tensor<512xf32, #blocked> to tensor<512xbf16, #blocked>
+      tt.store %96, %97, %8 {cache = 1 : i32, evict = 1 : i32} : tensor<512xbf16, #blocked>
+      %98 = tt.addptr %arg23, %arg9 : !tt.ptr<bf16>, i32
+      %99 = tt.addptr %arg24, %arg10 : !tt.ptr<bf16>, i32
+      %100 = tt.addptr %arg25, %arg14 : !tt.ptr<bf16>, i32
+      %101 = tt.addptr %arg26, %arg11 : !tt.ptr<bf16>, i32
+      %102 = tt.addptr %arg27, %arg12 : !tt.ptr<bf16>, i32
+      %103 = tt.addptr %arg28, %arg13 : !tt.ptr<bf16>, i32
+      scf.yield %83, %98, %99, %100, %101, %102, %103 : tensor<512xf32, #blocked>, !tt.ptr<bf16>, !tt.ptr<bf16>, !tt.ptr<bf16>, !tt.ptr<bf16>, !tt.ptr<bf16>, !tt.ptr<bf16>
+    }
+    %41 = arith.muli %0, %arg15 : i32
+    %42 = tt.addptr %arg6, %41 : !tt.ptr<f32>, i32
+    %43 = tt.addptr %42, %10 : !tt.ptr<f32>, i32
+    %44 = tt.splat %43 : (!tt.ptr<f32>) -> tensor<512x!tt.ptr<f32>, #blocked1>
+    %45 = tt.addptr %44, %3 : tensor<512x!tt.ptr<f32>, #blocked1>, tensor<512xi32, #blocked1>
+    %46 = triton_gpu.convert_layout %40#0 : (tensor<512xf32, #blocked>) -> tensor<512xf32, #blocked1>
+    tt.store %45, %46, %7 {cache = 1 : i32, evict = 1 : i32} : tensor<512xf32, #blocked1>
+    tt.return
+  }
+}

@@ -1,0 +1,7 @@
+[
+  "/home/bupt/miniconda3/envs/slim/bin/python",
+  "-B",
+  "-c",
+  "from pathlib import Path\nimport torch,sys,json\nfrom configs.cfg_outdoor_test import get_cfg_defaults\nfrom src.slim import SLiM\nfrom experiments.lowtex_e2e_v1.evaluation.development import validate\nbase=Path('data/megadepth')\nmodel=SLiM(get_cfg_defaults().MODEL).cuda().eval()\nmodel.load_state_dict(torch.load('ckpt/megadepth_19epochs.ckpt',map_location='cpu')['state_dict'],strict=True)\nfor name,smoke in [('smoke',True),('full_dev',False)]:\n validate(model,640,base,Path(sys.argv[1])/name,smoke)\n",
+  "/home/bupt/projects/SLiM-master/experiments/lowtex_e2e_v1/outputs/baseline_texturepoor/20261127T172409026185Z"
+]
