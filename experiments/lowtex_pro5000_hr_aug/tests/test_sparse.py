@@ -80,8 +80,9 @@ def test_dense_native_focal_matches_original_single_pair():
     from experiments.lowtex_pro5000_hr_aug.losses.sparse_matching_loss import native_focal
     cfg=get_cfg_defaults().LOSS
     loss=SLiM_Loss(cfg)
-    a=torch.randn(8,5,requires_grad=True)
-    b=torch.randn(8,5,requires_grad=True)
+    features=torch.Generator().manual_seed(42)
+    a=torch.randn(8,5,generator=features,requires_grad=True)
+    b=torch.randn(8,5,generator=features,requires_grad=True)
     t=torch.tensor(.37,requires_grad=True)
     i=torch.tensor([1,2,3,4,6])
     j=torch.tensor([5,2,4,1,0])
@@ -89,7 +90,9 @@ def test_dense_native_focal_matches_original_single_pair():
     gt=torch.zeros(1,8,8)
     gt[0,i,j]=1.
     sim=((a@b.T)/(5*(t+1e-8))).masked_fill(~(mask[:,None]&mask[None]),-1e9)
-    d=dict(sim_matrix=sim[None],conf_matrix_gt=gt,mask0=mask[None],mask1=mask[None])
+    # Native SLiM receives [batch, Hc, Wc] masks and flattens only the spatial axes.
+    grid_mask=mask.reshape(1,2,4)
+    d=dict(sim_matrix=sim[None],conf_matrix_gt=gt,mask0=grid_mask,mask1=grid_mask)
     torch.manual_seed(91)
     expected=loss.compute_coarse_loss(d)
     actual=native_focal(a,b,mask,mask,i,j,t,loss,2,torch.Generator().manual_seed(91))
